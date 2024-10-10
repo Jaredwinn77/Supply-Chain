@@ -43,9 +43,9 @@ def breadth_first(G,starting_node):
     # Initialize lists
     completed_subnetworks = []
     working_subnetworks = []
-
+    edge_lists = []
     # We add each element as a list
-    working_subnetworks.append([[starting_node],[starting_node]])
+    working_subnetworks.append([[starting_node],[starting_node],[]])
 
     visited = False
 
@@ -87,10 +87,14 @@ def breadth_first(G,starting_node):
                             new_subnetwork[1].append(value)
                     if visited:
                         new_subnetwork[0].append(color_groups[key])
+                        # add an edge list
+                        new_subnetwork[-1].append((node,color_groups[key]))
                         completed_subnetworks.append(new_subnetwork[0])
+                        edge_lists.append(new_subnetwork[-1])
                         visited = False
                     else:
                         new_subnetwork[0].append(color_groups[key])
+                        new_subnetwork[-1].append((node, color_groups[key]))
                         working_subnetworks.append(new_subnetwork)
     final = []
     for network in completed_subnetworks:
@@ -103,8 +107,7 @@ def breadth_first(G,starting_node):
             else:
                 flat.append(item)
         final.append(flat[::-1])
-    return final
-
+    return final, edge_lists
 
 
 
