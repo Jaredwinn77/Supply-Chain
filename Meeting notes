@@ -1,0 +1,5 @@
+10/10/24
+Fix breadth first so that it doesn't return a subnetwork until all paths are terminated
+Inner vs outer subnetworks 
+How to quantitatively differentiate between subnetworks?
+  --trim off everything that's not part of a cycle and then compare edge sets
