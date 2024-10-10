@@ -11,5 +11,7 @@ the target node are added. Since G is finite this number will be finite. Thus th
 WLOG select a single subnetwork from the list of not completed subnetworks. At each step we will add an edge and node to the network until either a leaf is reached, or a cycle is detected. Let k be the length 
 of the longest path on G. K must be finite, so after N<=K steps the subnetwork will have been completed []
 
-3) The breadth first approach will yield the same subnetworks as the depth first approach 
+3) The breadth first algorithm will find all subnetworks present in G
+
+pf/ Let S be a node in a subnetwork of G. Let N be our starting node. Since 
 
