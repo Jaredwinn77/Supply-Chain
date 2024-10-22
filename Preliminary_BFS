@@ -1,0 +1,96 @@
+import copy
+import itertools
+def flatten(nested_list):
+    result = []
+    for item in nested_list:
+        if isinstance(item, list):
+            result.extend(flatten(item))  # Recursively flatten the nested list
+        else:
+            result.append(item)  # Append the item if it's not a list
+    return result
+
+def breadth_first(G, starting_node):
+    completed_subnetworks = []
+    working_subnetworks = []
+    # [[working levels],[visited nodes],[edge list]]
+    working_subnetworks.append([[starting_node], [starting_node],[]])
+    # Loops as long as a subnetwork remains incomplete
+    while working_subnetworks:
+        # Processes each subnetwork
+        for subnetwork in working_subnetworks:
+            # Identifies subnetwork and pops it off
+            index = working_subnetworks.index(subnetwork)
+            working_subnetworks.pop(index)
+            # Selects the level to begin searching from and the number of branches
+            working_level = subnetwork[0]
+            if isinstance(working_level, list):
+                num_branches = len(working_level)
+            else:
+                num_branches = 1
+            # each branch will be added to branch list, the combinations will be used to create the new subnetworks
+            branch_list = []
+            dead = {}
+            edges = {}
+            for i in range(num_branches):
+                # this will contain the next level of nodes to be searched for this branch
+                branch = []
+                # Determines which node to evaluate
+                if isinstance(working_level, list):
+                    node = working_level[i]
+                else:
+                    node = working_level
+
+                incoming_edges = list(G.in_edges(node, data=True))
+                # creates color dictionary
+                color_groups = {}
+                for u, v, data in incoming_edges:
+                    color = data.get('color')
+                    if color not in color_groups:
+                        color_groups[color] = []
+                    color_groups[color].append(u)
+                for key in color_groups.keys():
+                    colorset = []
+                    for value in color_groups[key]:
+                        if value in subnetwork[1]:
+                            #here we create the entry for the dead dict key: edge value: living nodes of a different color
+                            dead[(value,node)]= [
+                                other_value for other_key, other_values in color_groups.items()
+                                if other_key != key  # Ensure it's a different color group
+                                for other_value in other_values
+                                if other_value not in subnetwork[1]  # Only include nodes not in subnetwork[1]
+                                ]
+                            # if there are no other living nodes of the color we need to append a filler to the colorset
+                            if len(color_groups[key]) == 1:
+                                colorset.append('d')
+                        else:
+                            colorset.append(value)
+                            subnetwork[1].append(value)
+                            # add the edge to the edge dict
+                            edges[value] = node
+                    branch.append(colorset)
+                branch_list.append(branch)
+            cleaned = []
+            if len(branch_list)== 1:
+                combinations = flatten(branch_list)
+                cleaned.append(combinations)
+            else:
+                combinations = list(itertools.product(*branch_list))
+                for combo in combinations:
+                    combo = flatten(combo)
+                    cleaned.append(combo)
+            for combo in cleaned:
+                new_subnetwork = copy.deepcopy(subnetwork)
+                # adds dead edges
+                for key, value_list in dead.items():
+                    if not any(item in combo for item in value_list):
+                        new_subnetwork[2].append(key)
+                for node1,node2 in edges.items():
+                    if node1 in combo:
+                        new_subnetwork[2].append((node1,node2))
+                combo = [item for item in combo if isinstance(item,int)]
+                if len(combo) == 0:
+                    completed_subnetworks.append(new_subnetwork[2])
+                else:
+                    new_subnetwork[0] = combo
+                    working_subnetworks.append(new_subnetwork)
+    return completed_subnetworks
