@@ -1,0 +1,2 @@
+10/24/24
+Tested BFS algorithm, ran experiments to determine how large a graph needed to be to have more than one subnetwork, and how many distinct subnetworks were present. Ran experiments on time to run
