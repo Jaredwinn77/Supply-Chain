@@ -3,3 +3,12 @@ Fix breadth first so that it doesn't return a subnetwork until all paths are ter
 Inner vs outer subnetworks 
 How to quantitatively differentiate between subnetworks?
   --trim off everything that's not part of a cycle and then compare edge sets
+10/31
+look at small networks, look for equivalent networks, kill edges that dont have cycles (look at out degree)
+compare differences in subnetworks with  different starting nodes
+resialance of the network, based on number of branches vs number of subnetworks 
+correlation between number of colors, branching and subnetworks 
+why do some have more subnetworks 
+adapt code to python to model flow
+choose weights between 1/2 and 2
+test slight modifications in subnetworks and weights 
