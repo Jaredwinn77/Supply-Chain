@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as patches
 import copy
+import itertools
+from collections import Counter
 
 """"Contains the bones used for supply chain experiments"""
 
@@ -47,7 +49,9 @@ def visualize_graph(G):
   plt.show()
 
 
-def draw_subnetwork(G, subnetwork_nodes, title):
+def visualize_subnetworks(G, subnetworks):
+  """Plots all of the subnetworks using the helper function draw_subnetworks"""
+  def draw_subnetwork(G, subnetwork_nodes, title):
     """Draw a single subnetwork, this function is called as part of visualize_subnetworks"""
     subgraph = G.subgraph(subnetwork_nodes)
     pos = nx.spring_layout(subgraph)  # Position nodes using the spring layout
@@ -60,87 +64,12 @@ def draw_subnetwork(G, subnetwork_nodes, title):
     plt.title(title)
     plt.show()
 
-def visualize_subnetworks(G, subnetworks):
-  """Plots all of the subnetworks found by find_subnetworks"""
   for i, subnetwork in enumerate(subnetworks):
       draw_subnetwork(G, subnetwork, f'Subnetwork {i + 1}')
 
-def find_subnetworks(G,start,visited=None,current_subnetwork=None):
-  """Algorithm recursively finds subnetworks, this version does not take into account edge colors"""
-  # Base cases
-  if visited is None:
-    visited = set()
-  if current_subnetwork is None:
-    current_subnetwork = []
-  # Adds current node to both visited and current subnetwork
-  visited.add(start)
-  current_subnetwork.append(start)
-  # Finds all incoming edges
-  incoming_edges = list(G.in_edges(start))
-  subnetworks = []
-  # u and v are each nodes which are connected by one of the edges in incoming_edges
-  for u,v in incoming_edges:
-    # checks if u has alread been evaluated
-    if u not in visited:
-      # If u was not evaluated it is used as the starting node in a new search
-      new_subnetworks = find_subnetworks(G,u,visited.copy(),current_subnetwork.copy())
-      # the results of the new search are added to the subnetworks
-      subnetworks.extend(new_subnetworks)
-    else:
-      # This logic deals with when there is a loop
-      if u in current_subnetwork:
-        loop_subnetwork = current_subnetwork + [u]
-        subnetworks.append(loop_subnetwork)
-  # removes the current network once it has been fully explored
-  current_subnetwork.pop()
-  # allows for the same node to appear in different subnetworks
-  visited.remove(start)
-  # stops when there are no more unexplored paths
-  if not incoming_edges or not subnetworks:
-    return [current_subnetwork]
-  # subnetworks is a list of all subnetworks
-  return subnetworks
-def find_subnetworks_color(G,start,visited=None,current_subnetwork=None):
-  """Implementation very similar to above, with the exception of the logic which is implemented to deal with colors"""
-  # Base cases
-  if visited is None:
-    visited = set()
-  if current_subnetwork is None:
-    current_subnetwork = []
-  # Adds current node to both visited and current subnetwork
-  visited.add(start)
-  current_subnetwork.append(start)
-  # Finds all incoming edges
-  incoming_edges = list(G.in_edges(start,data=True))
-  color_groups = {}
-  # This section creates a dictionary of all the colors flowing into the node
-  for u,v, data in incoming_edges:
-    color = data.get('color')
-    if color not in color_groups:
-      color_groups[color] = []
-    color_groups[color].append(u)
-  # Starts a subnetworks list, each subnetwork will be appended once it has been fully explored
-  subnetworks = []
-  # This section is essentially the same as before, except now it does all edges of the same color at the same time
-  for color, nodes in color_groups.items():
-    for u in nodes:
-      if u not in visited:
-        new_subnetworks = find_subnetworks_color(G, u, visited.copy(), current_subnetwork.copy())
-        subnetworks.extend(new_subnetworks)
-      else:
-        # Deals with loops
-        if u in current_subnetwork:
-          loop_subnetwork = current_subnetwork + [u]
-          subnetworks.append(loop_subnetwork)
-  # Moves on to the next subnetwork and clears the variables that need to reset
-  current_subnetwork.pop()
-  visited.remove(start)
-  # Stopping criteria
-  if not incoming_edges or not subnetworks:
-    return [current_subnetwork]
-  return subnetworks
 
 def create_weights(G,num_nodes):
+  """"Creates a random weight matrix for a given graph"""
   n = num_nodes
   matrix = np.random.rand(n,n)
   column_sums = matrix.sum(axis=0)
@@ -150,6 +79,7 @@ def create_weights(G,num_nodes):
 
 
 def spectral_radius(weighted, subnetworks):
+  """Calculates the spectral radii for each subnetwork in a list of subnetworks"""
   radii = []
   for subnetwork in subnetworks:
     subnetwork_matrix = weighted[np.ix_(subnetwork, subnetwork)]
@@ -158,85 +88,183 @@ def spectral_radius(weighted, subnetworks):
 
   return radii
 
-def breadth_first(G,starting_node):
-    """This function is a breadth first approach to identifying subnetworks, it iterates through each subnetwork in working_subnetworks, adding a single level
-    this could be more than a single edge/node pair if the edge is connected to more than one other node via edges of the same color. Once the stopping criteria are met the
-    subnetwork is popped off and added to completed_subnetworks"""
-    """Psuedo code:
-    Create a subnetwork containing the starting node, add it to working_subnetworks, record it in visited_nodes
-    for every subnetwork in working subnetworks
-    for each of the nodes in the last entry (just in case more than node flowed into the predecessor with the same color,this should usually be only one node)
-    find all of the nodes which flow into that node and group them by color
-    for each of the colors, check if the nodes have been visited
-    if they have, add them to the graph, add it to the completed_subnetworks, and remove the graph from working_subnetworks
-    if not add them to a copy of a subnetwork and remove the original
-    when working_subnetworks is empty return the completed_subnetworks
-    """
-    # Initialize lists
+def flatten(nested_list):
+    """Helper function to flatten nested lists"""
+    result = []
+    for item in nested_list:
+      if isinstance(item, list):
+        result.extend(flatten(item))  # Recursively flatten the nested list
+      else:
+        result.append(item)  # Append the item if it's not a list
+    return result
+
+
+def breadth_first(G, starting_node):
+    """Implementation of the BFS algorithm for subnetwork detection """
     completed_subnetworks = []
     working_subnetworks = []
-    edge_lists = []
-    # We add each element as a list
-    working_subnetworks.append([[starting_node],[starting_node],[]])
-
-    visited = False
-
-    # Loop through each subnetwork, adding one node to each network and popping of networks once they are finished
+    # [[working levels],[visited nodes],[edge list]]
+    working_subnetworks.append([[starting_node], [], []])
+    # Loops as long as a subnetwork remains incomplete
     while working_subnetworks:
-        # We work on each subnetwork individually
-        for subnetwork in working_subnetworks:
-            # This should pop the current subnetwork not the first one
-            index = working_subnetworks.index(subnetwork)
-            working_subnetworks.pop(index)
-            working_level = subnetwork[0][-1]
-            if isinstance(working_level,list):
-                k = len(working_level)
-            else:
-                k = 1
-            for i in range(k):
-                if isinstance(working_level, list):
-                    node = working_level[i]
-                else:
-                    node = working_level
-                # Collect all incoming edges
-                incoming_edges = list(G.in_edges(node,data = True))
-                # Creates a dictionary of all colors flowing into a node
-                color_groups = {}
-                for u, v, data in incoming_edges:
-                    color = data.get('color')
-                    if color not in color_groups:
-                        color_groups[color] = []
-                    color_groups[color].append(u)
-                # for each of the color groups we create a copy of the subnetwork and append all of the nodes in that group
-                for key in color_groups.keys():
-                    # using deep copy ensures that the correct subnetworks are modified
-                    new_subnetwork = copy.deepcopy(subnetwork)
-                    for value in color_groups[key]:
-                    # we need to check if the nodes are already in visited
-                        if value in new_subnetwork[1]:
-                            visited = True
-                        else:
-                            new_subnetwork[1].append(value)
-                    if visited:
-                        new_subnetwork[0].append(color_groups[key])
-                        # add an edge list
-                        new_subnetwork[-1].append((node,color_groups[key]))
-                        completed_subnetworks.append(new_subnetwork[0])
-                        edge_lists.append(new_subnetwork[-1])
-                        visited = False
-                    else:
-                        new_subnetwork[0].append(color_groups[key])
-                        new_subnetwork[-1].append((node, color_groups[key]))
-                        working_subnetworks.append(new_subnetwork)
-    final = []
-    for network in completed_subnetworks:
-        flat = []
-        stack = list(network)
-        while stack:
-            item = stack.pop()
-            if isinstance(item,list):
-                stack.extend(item)
-            else:
-                flat.append(item)
-        final.append(flat[::-1])
-    return final, edge_lists
+      # Processes each subnetwork
+      for subnetwork in working_subnetworks:
+        subnetwork[1] = []
+        for entry in subnetwork[2]:
+          node1, node2 = entry
+          subnetwork[1].append(node1)
+          subnetwork[1].append(node2)
+        # Identifies subnetwork and pops it off
+        index = working_subnetworks.index(subnetwork)
+        working_subnetworks.pop(index)
+        # Selects the level to begin searching from and the number of branches
+        working_level = subnetwork[0]
+        if isinstance(working_level, list):
+          num_branches = len(working_level)
+        else:
+          num_branches = 1
+        # each branch will be added to branch list, the combinations will be used to create the new subnetworks
+        branch_list = []
+        dead = {}
+        edges = {}
+        for i in range(num_branches):
+          # this will contain the next level of nodes to be searched for this branch
+          branch = []
+          # Determines which node to evaluate
+          if isinstance(working_level, list):
+            node = working_level[i]
+          else:
+            node = working_level
+
+          incoming_edges = list(G.in_edges(node, data=True))
+          # creates color dictionary
+          color_groups = {}
+          for u, v, data in incoming_edges:
+            color = data.get('color')
+            if color not in color_groups:
+              color_groups[color] = []
+            color_groups[color].append(u)
+          for key in color_groups.keys():
+            colorset = []
+            for value in color_groups[key]:
+              # found an error, a subnetwork inherits dead edges from other subnetworks
+              if value in subnetwork[1]:
+                # here we create the entry for the dead dict key: edge value: living nodes of a different color
+                dead[(value, node)] = [
+                  other_value for other_key, other_values in color_groups.items()
+                  if other_key != key  # Ensure it's a different color group
+                  for other_value in other_values
+                  if other_value not in subnetwork[1]  # Only include nodes not in subnetwork[1]
+                ]
+                # if there are no other living nodes of the color we need to append a filler to the colorset
+                if len(color_groups[key]) == 1:
+                  colorset.append('d')
+              else:
+                colorset.append(value)
+                subnetwork[1].append(value)
+                # add the edge to the edge dict
+                edges[value] = node
+            branch.append(colorset)
+          branch_list.append(branch)
+        cleaned = []
+        if len(branch_list) == 1:
+
+
+          for i in range(len(branch_list[0])):
+            cleaned.append(branch_list[0][i])
+        else:
+          combinations = list(itertools.product(*branch_list))
+          for combo in combinations:
+            combo = flatten(combo)
+            cleaned.append(combo)
+        for combo in cleaned:
+          new_subnetwork = copy.deepcopy(subnetwork)
+          # adds dead edges
+          # this does not function correctly when there are multiple dead subnetworks
+          for key, value_list in dead.items():
+            if not any(item in combo for item in value_list):
+              new_subnetwork[2].append(key)
+          for node1, node2 in edges.items():
+            if node1 in combo:
+              new_subnetwork[2].append((node1, node2))
+          combo = [item for item in combo if isinstance(item, int)]
+          if len(combo) == 0:
+            completed_subnetworks.append(new_subnetwork[2])
+          else:
+            new_subnetwork[0] = combo
+            working_subnetworks.append(new_subnetwork)
+
+    return remove_dup((remove_hangers(completed_subnetworks))), remove_dup(completed_subnetworks)
+
+
+# redo to trim iteratively
+def remove_hangers(subnetworks):
+  """Remove all edges of nodes of degree 1."""
+  cleaned = []
+
+  for subnetwork in subnetworks:
+    # Track node degrees across the entire subnetwork
+    node_degree = Counter()
+    # First pass: count the degree of each node in the subnetwork
+    for edge in subnetwork:
+      node_degree[edge[0]] += 1
+      node_degree[edge[1]] += 1
+
+    # Remove edges with nodes that have degree 1
+    done = False
+    while not done:
+      # Identify nodes with degree 1 (hanging nodes)
+      hanging_nodes = {node for node, degree in node_degree.items() if degree == 1}
+
+      if not hanging_nodes:
+        # No hanging nodes, we can stop
+        done = True
+      else:
+        # Filter out the edges involving hanging nodes
+        filtered_edges = [edge for edge in subnetwork if edge[0] not in hanging_nodes and edge[1] not in hanging_nodes]
+
+        # Update the node degrees after filtering
+        node_degree = Counter()
+        for edge in filtered_edges:
+          node_degree[edge[0]] += 1
+          node_degree[edge[1]] += 1
+
+        # Set the filtered edges as the new subnetwork
+        subnetwork = filtered_edges
+
+    # After cleaning, add the subnetwork to the result
+    cleaned.append(subnetwork)
+  return cleaned
+
+def remove_dup(subnetworks):
+    """removes any duplicate subnetworks"""
+    seen = set()
+    result = []
+
+    for sublist in subnetworks:
+      # Convert the sublist to a tuple so it can be added to a set
+      tuple_sublist = tuple(sublist)
+
+      if tuple_sublist not in seen:
+        seen.add(tuple_sublist)
+        result.append(sublist)
+
+    return result
+def num_duplicates(lists):
+  """Counts the number of duplicate subnetworks"""
+  seen = set()
+  numseen = 0
+  for sublist in lists:
+    # Convert sublist to a frozenset to make it hashable
+    sublist_set = frozenset(sublist)
+    if sublist_set in seen:
+      numseen += 1
+    seen.add(sublist_set)
+  return numseen
+
+def count_subnetworks(subnetworks):
+    """counts number of subnetworks"""
+    num = 0
+    for sub in subnetworks:
+      num += 1
+    return num
