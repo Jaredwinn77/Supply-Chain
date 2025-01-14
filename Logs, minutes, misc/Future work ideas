@@ -1,6 +1,0 @@
-* try a monte carlo method to randomly delete edges until each node only has one edge
-* quantify differences between returned subnetworks when a different starting node is used
-* check if any of the subnetworks starting at the same vertex are a subset of each other
-* what happens if you erase every edge that doesn't branch? similar to monte carlo
-* proof that depth and breadth first searches return the same thing
-* what if you create a different matrix for each color, and then per node you look at the entries corosponding to the node of interest?
