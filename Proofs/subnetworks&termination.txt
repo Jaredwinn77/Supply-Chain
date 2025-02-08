@@ -1,0 +1,21 @@
+Let G be a connected, directed, finite graph.
+
+1) G contains a finite number of subgraphs
+
+pf/ Since each subgraph must be distinct from any other subgraph, and G is finite, there are only finitely many possible subgraphs []
+
+2) The breadth first algorithm will terminate
+
+pf/ The algorithm will terminate when the list of not completed subnetworks is empty. The algorithmm begins with one not completed subnetwork. At each step a maximum of the number of edges connecting to 
+the target node are added. Since G is finite this number will be finite. Thus the number of not completed subnetworks is finite. We now show that any not completed subnetwork will terminate after finitely many steps.
+WLOG select a single subnetwork from the list of not completed subnetworks. At each step we will add an edge and node to the network until either a leaf is reached, or a cycle is detected. Let k be the length 
+of the longest path on G. K must be finite, so after N<=K steps the subnetwork will have been completed []
+
+3) Adding an edge to a graph will result in a greater or equal number of subnetworks. Furthermore, the number of subnetworks is porportional to the number of edges, colors and nodes. 
+pf/ Recall that the BFS algorithm creates another subnetwork when a node is reached which has edges of more than one color flowing into it. Thus any graph with only one color will have a single
+subnetwork. A Graph with two colors will have at least a single subnetwork. Consider a graph G with c1 colors and n subnetworks. Add a new edge of a distinct color to G'.
+WLOG suppose that this edge connects nodes v1 and v2. Because G is stronly connected there already exists an edge which flows into v2, thus when the BFS algorithm reaches v2
+it will split, creating another subnetwork which is distinct from all n previous subnetworks, as such G' will have n+1 subnetworks.
+Consider adding an edge of arbirtary color to G between the nodes v1 and v2. Either it is different from the edge already flowing into v2, in which case the above reasoning applies.
+Or it is the same, in which case the algorithm will select both and continue, resulting in the n subnetworks. 
+

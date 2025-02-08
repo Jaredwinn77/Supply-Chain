@@ -1,0 +1,2 @@
+A worst case estimate is exponential time. However reviewing the results of experiments reveals that in actuality the algorithm performs at about quadratic
+with the leading order dictated by the specific conbinations of nodes, edges and colors used in graph creation  

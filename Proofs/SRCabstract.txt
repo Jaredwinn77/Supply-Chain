@@ -1,0 +1,10 @@
+The interconnectedness of modern supply chains means that
+ slight variations in dynamics can be amplified across the world.
+ We consider a network model of supply chain dynamics, based on the 
+ limiting principle of minimum production, to predict cascading failures.
+ We define a subnetwork of the supply chain network and consider its 
+ spectral radius as a mechanism for determining the locations of failures. 
+ We describe a novel algorithm for identifying subnetworks which in
+ the most pathological cases has complexity O(n^n) but in practice averages
+ a more tenable quadratic complexity. 
+ We propose another mechanism which results in failures. 

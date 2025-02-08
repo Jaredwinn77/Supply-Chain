@@ -1,0 +1,18 @@
+Identifying mechanisms for zero nodes:
+    One color: spectral radius close to 1
+    Multiple colors: 
+        Structural-- perhaps when a node with two different colors flowing in
+    See the effects of perturbing initial conditions
+    Can any graph have it?
+    Is it caused by only a single factor or multiple?
+    Is there one new mechanism or two?
+    How can we understand some graphs haveing all nodes go to zero, and some only having a few?
+    Can we determine how far the cascade goes, or predict the level of failure 
+    (check the inputs of those nodes outside of the zero subnetwork)
+    can we show the number of colors increases the number of subenetworks?
+    think about changing a color to be a different one
+Sensitivity--
+    Condtion of the system:
+        Calculate how much each perturbation changes the outcome
+    Lyaponov Coefficient:
+        Similar measures the dependence on initial conditions, can be used to classify the system as chaotic 
