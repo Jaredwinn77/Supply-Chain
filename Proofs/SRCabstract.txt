@@ -8,3 +8,21 @@ The interconnectedness of modern supply chains means that
  the most pathological cases has complexity O(n^n) but in practice averages
  a more tenable quadratic complexity. 
  We propose another mechanism which results in failures. 
+
+
+
+
+Matts thesis
+
+ SRC outline
+* Introduce model (barrel model)
+show a small graph (running example)
+* Introduce the idea of a subnetwork
+---- a subset of graph st one color maximum flows into each node
+---- this gets rid of the minimums 
+* Algorithm for finding subnetworks
+--- show method
+--- complexity
+--- # of subnetworks 
+
+

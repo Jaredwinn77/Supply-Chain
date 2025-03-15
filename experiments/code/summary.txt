@@ -1,0 +1,8 @@
+Algorithm for detecting subnetworks was created and verified
+---Has approximately n^2 complexity
+---Number of subnetworks increases as a function of nodes, edges and colors
+Algorithm was adapted into a class for use in experiments
+Experiments seem to indicate that a both nessecary and sufficient condition for a node going to zero
+is membership in subnetwork with spectral radius less than 1.
+The Lyaponov numbers of the subnetworks indicate that many are sensitively dependent on initial conditions, but only when tanh is not used
+

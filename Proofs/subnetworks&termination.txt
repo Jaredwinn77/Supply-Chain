@@ -19,3 +19,5 @@ it will split, creating another subnetwork which is distinct from all n previous
 Consider adding an edge of arbirtary color to G between the nodes v1 and v2. Either it is different from the edge already flowing into v2, in which case the above reasoning applies.
 Or it is the same, in which case the algorithm will select both and continue, resulting in the n subnetworks. 
 
+4) consider adding a node to G and making it strongly connected 
+

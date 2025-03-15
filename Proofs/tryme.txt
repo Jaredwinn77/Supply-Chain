@@ -1,18 +1,69 @@
-Identifying mechanisms for zero nodes:
-    One color: spectral radius close to 1
-    Multiple colors: 
-        Structural-- perhaps when a node with two different colors flowing in
-    See the effects of perturbing initial conditions
-    Can any graph have it?
-    Is it caused by only a single factor or multiple?
-    Is there one new mechanism or two?
-    How can we understand some graphs haveing all nodes go to zero, and some only having a few?
-    Can we determine how far the cascade goes, or predict the level of failure 
-    (check the inputs of those nodes outside of the zero subnetwork)
-    can we show the number of colors increases the number of subenetworks?
-    think about changing a color to be a different one
-Sensitivity--
+Cascade:
+    Look at larger networks and see what happens to nodes in between subnetworks? Are there nodes not in a subnetwork?
+    Look at the rates of growth/collapse
+    Cascades affect hanging nodes??
+    Intersection/unions of subenetworks
+    Sensitivity--
     Condtion of the system:
         Calculate how much each perturbation changes the outcome
     Lyaponov Coefficient:
         Similar measures the dependence on initial conditions, can be used to classify the system as chaotic 
+Definition of subnetworks 
+every edge has a exactly one incoming color and weakly connected 
+
+
+To do:
+Code:
+Implement larger subnetwork cretion using Goliath code ------------------------------------done
+Add different methods to visualize the flow within a subnetwork----------------------------done
+   -- Average
+   -- Min 
+   -- max
+Add a tanh to cap the growth----------------------------------------------------------------done
+Calcualte the rates of change of each subnetworks flow--------------------------------------done
+Finish Lyaponov for weights
+Experiments:
+Are there nodes not within a subnetwork?
+Can a subnetwork be a subset of a different subnetwork?
+Can we see any evidence of cascades?
+ -- Look particularly at hanging nodes
+Look at changes in lyapunov with tanh applied
+
+
+To do:
+
+Look at overlaps, what is the intersection of two subnetworks
+(are there building blocks of subnetworks)
+subnetworks with same nodes but different edges
+Look for patterns of hanging nodes going to zero
+Conjecture: being a hanging node is in low subnetworks is stronger than being in a positive subnetwork
+if lim(I) goes to 0, is I a member of a failing subnetwork,
+if spectral > 1, can whole subnetwork still crash 
+
+Goal-- look at hueristics for finding subnetworks
+coarse grain graph (graph of subgraphs ) edges indicate subnetworks overlap
+
+
+
+
+**we need color dimensional matrices, then we could simpply identify mins and take column ID's 
+
+
+3/10/25
+(i) papers
+    -- cascades of failures
+    -- bull whip effects
+    -- What properties should we be looking for? what terminology should we use?
+(ii) Algorithm 
+    -- functionality
+    -- complexity
+    -- approximations 
+    -- structure of overlapping subnetworks
+       (a) can we prove noninclusion result (no subnetwork is a subset of another)
+       (b) what is the intersection of two subnetworks? 
+       (c) circle subnetworks 
+       (d) graph of subnetworks
+       (e) random geometric graphs, watts strogatz, barabasi albert
+    -- Overall graph structure
+
+

@@ -7,10 +7,13 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import matplotlib.colors as mcolors
+import matplotlib.cm as cm
 import matplotlib.patches as patches
 from matplotlib.colors import LinearSegmentedColormap
 from IPython.display import HTML, display
-
+import time
+from adjustText import adjust_text
+from collections import defaultdict
 
 class Graphclass:
     """"Class for studying the behavior of dynamical systems through networks
@@ -45,25 +48,65 @@ class Graphclass:
         visualize_flow: creates and displays an animation of the behavior of the system 
         perturb_weights: randomly varies the weight matrix
         visualize_node_flow(node, depth): creates an animation showing the flow of the target node and all neighbors within a specified depth
+        added hueristic methods for determining subnetworks 
+        # add descriptions of hueristics and sensitivity functions 
         """""
-
+        
 
     def __init__(self, num_nodes, num_edges, num_colors, full=False):
         """"Allows for a graph object to be input or the generation of a random graph"""
         self.num_nodes = num_nodes
         self.full = full
-        self.G = self.create_graph(num_nodes, num_edges, num_colors)
+        self.num_colors = num_colors
+        if self.num_nodes < 2:
+            self.G = self.create_graph(num_nodes, num_edges, num_colors)
+            self.large = False
+        else:
+            self.G = self.Goliath()
+            self.large = True
         self.weights = self.create_weights()
+        start = time.time()
         self.subnetworks, self.dirty_subnetworks = self.breadth_first()
         self.dirty_radii = self.spectral_radius(self.dirty_subnetworks)
         self.dirty_predicted = self.predict(self.dirty_radii, self.dirty_subnetworks)
         self.radii = self.spectral_radius(self.subnetworks)
-        self.history, self.converged, self.zero_nodes = self.simulate_linear()
         self.predicted = self.predict(self.radii,self.subnetworks)
+        stop = time.time()
+        self.bfsflop = stop - start
+        self.history, self.converged, self.zero_nodes = self.simulate_linear()
+        
         if full:
+            start = time.time()
             self.full_subnetwork, self.dirty_full_subnetwork = self.full_subnetworks()
             self.full_predicted, self.full_radii = self.predict_full(self.full_subnetwork)
             self.dirty_full_predicted, self.dirty_full_radii = self.predict_full(self.dirty_full_subnetwork)
+            stop = time.time()
+            self.fullflop = stop - start
+
+    
+    
+    def Goliath(self):
+        G = nx.DiGraph()
+        edge_probability = 0.5
+        num_nodes = self.num_nodes
+        G.add_nodes_from(range(num_nodes))
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                if i != j and random.random() < edge_probability:
+                    G.add_edge(i, j)
+        while not nx.is_strongly_connected(G):
+            components = list(nx.strongly_connected_components(G))
+            # If the graph is not strongly connected, connect the components
+            for i in range(1, len(components)):
+                src_component = components[i - 1]
+                dst_component = components[i]
+                src_node = random.choice(list(src_component))
+                dst_node = random.choice(list(dst_component))
+                G.add_edge(src_node, dst_node)
+        for u, v in G.edges():
+        # Random integer color and weight attributes for each edge
+            G[u][v]['color'] = random.randint(0,self.num_colors)
+        return G
 
     def use_premade(self, G, W):
         self.G = G
@@ -103,6 +146,7 @@ class Graphclass:
         self.num_nodes = len(edges)
     def create_weights(self, rho=2):
         """"Creates a random weight matrix for a given graph"""
+        self.rho = rho
         matrix = np.zeros((self.num_nodes, self.num_nodes))
         for i, j in self.G.edges():
             matrix[i, j] = np.random.uniform(0, rho)
@@ -279,12 +323,15 @@ class Graphclass:
         num = self.num_nodes
         weights = self.weights
         radii = []
+        condition = []
         for subnetwork in subnetworks:
             matrix = np.zeros((num,num))
             for node1, node2, _ in subnetwork:
                 matrix[node1][node2] = weights[node1][node2]
             rho = max(abs(np.linalg.eigvals(matrix)))
             radii.append(rho)
+            cond = 0 #rho/min(abs(np.linalg.eigvals(matrix)))
+            condition.append(cond)
 
 
         return radii
@@ -313,12 +360,12 @@ class Graphclass:
                     self.identical = False
                     return
         self.identical = True
-    def simulate_linear(self, initial=None, maxiter=100, epsilon=1e-10):
+    def simulate_linear(self, initial=None, maxiter=1000, epsilon=1e-10):
         G = self.G
         weights = self.weights
         self.T = False
         if initial == None:
-            initial = {node: random.uniform(1, 10) for node in G.nodes}
+            initial = {node: random.uniform(1, 2) for node in G.nodes}
         self.initial=initial
         history = {node: [initial[node]] for node in G.nodes}
         current = initial.copy()
@@ -343,7 +390,7 @@ class Graphclass:
                 if min_next_state == float('inf'):
                     next[node] = 0
                 else:
-                    next[node] = min_next_state
+                    next[node] = np.tanh(min_next_state)
                 max_change = max(max_change, abs(next[node] - current[node]))
 
             for node, state in next.items():
@@ -554,7 +601,7 @@ class Graphclass:
     
     def initial_lyapunov(self, initial=None, maxiter=100, epsilon=1e-10,perturb=1e-5):
         if initial is None:
-            initial = {node: random.uniform(1, 10) for node in self.G.nodes}
+            initial = {node: random.uniform(1, 2) for node in self.G.nodes}
         self.initial = initial
         
         # Initialize the unperturbed and perturbed states
@@ -599,8 +646,8 @@ class Graphclass:
                     if total_sum > 0:
                         min_next_state_perturbed = min(min_next_state_perturbed, total_sum)
                 
-                next_current[node] = 0 if min_next_state_current == float('inf') else min_next_state_current
-                next_perturbed[node] = 0 if min_next_state_perturbed == float('inf') else min_next_state_perturbed
+                next_current[node] = 0 if min_next_state_current == float('inf') else np.tanh(min_next_state_current)
+                next_perturbed[node] = 0 if min_next_state_perturbed == float('inf') else np.tanh(min_next_state_perturbed)
             
             # Calculate the difference between the perturbed and unperturbed states
             perturbation_norm = np.linalg.norm([next_perturbed[node] - next_current[node] for node in self.G.nodes])
@@ -631,5 +678,407 @@ class Graphclass:
         lyapunov_exponent = total_lyapunov / len(history_current[next(iter(self.G.nodes))])
         
         return lyapunov_exponent
-    def weight_lyapunov(self, initial=None, maxiter=100, epsilon=1e-10,perturb=1e-5):
-        pass
+    def weight_lyapunov(self, initial=None, maxiter=100, epsilon=1e-10, perturb=1e-5):
+        if initial is None:
+            initial = {node: random.uniform(1, 2) for node in self.G.nodes}
+        self.initial = initial
+        
+        # Initialize the unperturbed and perturbed states
+        current = initial.copy()
+        perturbed = current.copy()  # Initially same as current
+        
+        history_current = {node: [current[node]] for node in self.G.nodes}
+        history_perturbed = {node: [perturbed[node]] for node in self.G.nodes}
+        
+        # Initialize edge weights (perturbed edge weights are applied later)
+        perturbed_weights = {edge: self.weights[edge] + random.uniform(-perturb, perturb) 
+                            if self.weights[edge] != 0 else self.weights[edge] 
+                            for edge in self.G.edges}
+        
+        max_change = 0
+        for i in range(maxiter):
+            next_current = {}
+            next_perturbed = {}
+            
+            for node in self.G.nodes:
+                incoming_edges = list(self.G.in_edges(node, data=True))
+                color_groups_current = {}
+                color_groups_perturbed = {}
+                
+                for u, v, data in incoming_edges:
+                    color = data.get('color')
+                    if color is not None:
+                        # Use perturbed edge weights for the perturbed state
+                        edge_weight_current = self.weights[u, v]
+                        edge_weight_perturbed = perturbed_weights.get((u, v), self.weights[u, v])
+                        
+                        state_of_neighbor_current = current[u]
+                        state_of_neighbor_perturbed = perturbed[u]
+                        
+                        if color not in color_groups_current:
+                            color_groups_current[color] = 0
+                        color_groups_current[color] += edge_weight_current * state_of_neighbor_current
+                        
+                        if color not in color_groups_perturbed:
+                            color_groups_perturbed[color] = 0
+                        color_groups_perturbed[color] += edge_weight_perturbed * state_of_neighbor_perturbed
+                
+                min_next_state_current = float('inf')
+                min_next_state_perturbed = float('inf')
+                
+                for color, total_sum in color_groups_current.items():
+                    if total_sum > 0:
+                        min_next_state_current = min(min_next_state_current, total_sum)
+                for color, total_sum in color_groups_perturbed.items():
+                    if total_sum > 0:
+                        min_next_state_perturbed = min(min_next_state_perturbed, total_sum)
+                
+                next_current[node] = 0 if min_next_state_current == float('inf') else np.tanh(min_next_state_current)
+                next_perturbed[node] = 0 if min_next_state_perturbed == float('inf') else np.tanh(min_next_state_perturbed)
+            
+            # Calculate the difference between the perturbed and unperturbed states
+            perturbation_norm = np.linalg.norm([next_perturbed[node] - next_current[node] for node in self.G.nodes])
+            perturbation_growth = np.log(perturbation_norm) if perturbation_norm > 0 else 0
+            
+            # Track the states and perturbation growth over time
+            for node, state in next_current.items():
+                history_current[node].append(state)
+            for node, state in next_perturbed.items():
+                history_perturbed[node].append(state)
+            
+            # Update the system states
+            current = next_current
+            perturbed = next_perturbed
+            
+            # If max_change is smaller than epsilon, break
+            max_change = max(abs(next_current[node] - current[node]) for node in self.G.nodes)
+            if max_change < epsilon:
+                break
+        
+        # Compute the Lyapunov exponent
+        total_lyapunov = 0
+        for i in range(1, len(history_current[next(iter(self.G.nodes))])):
+            growth = np.log(np.linalg.norm([history_perturbed[node][i] - history_current[node][i] for node in self.G.nodes]) /
+                            np.linalg.norm([history_perturbed[node][0] - history_current[node][0] for node in self.G.nodes]))
+            total_lyapunov += growth
+
+        lyapunov_exponent = total_lyapunov / len(history_current[next(iter(self.G.nodes))])
+        
+        return lyapunov_exponent
+
+    def visualize_flow_of_subnetworks(self, method = 'average'):
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+        num_subnetworks = len(self.subnetworks)
+        for subnetwork in self.subnetworks:
+            nodes = [node for node, _, _ in subnetwork]
+            flow = []
+            rate_of_change = []
+            time_steps = len(next(iter(self.history.values())))
+            for t in range(time_steps):
+                flows_at_t = []
+                for node in nodes:
+                    if node in self.history:
+                        flows_at_t.append(self.history[node][t])
+                if method == 'average':
+                    flow_at_t = np.mean(flows_at_t)
+                elif method == 'max':
+                    flow_at_t = np.max(flows_at_t)
+                elif method == 'min':
+                    flow_at_t = np.min(flows_at_t)
+                
+                flow.append(flow_at_t)
+                if t > 0:
+                    rate_of_change_at_t = flow_at_t - flow[t - 1]
+                    rate_of_change.append(rate_of_change_at_t)
+                else:
+                    rate_of_change.append(0)
+
+            ax1.plot(range(time_steps), flow, label=f"Subnetwork {self.subnetworks.index(subnetwork) + 1}")
+
+            ax2.plot(range(1, time_steps), rate_of_change[1:], label=f"Subnetwork {self.subnetworks.index(subnetwork) + 1}")
+        self.change = rate_of_change
+        self.flow = flow
+        ax1.set_xlabel('Time Steps')
+        ax1.set_ylabel(f'{method.capitalize()} Flow')
+        if num_subnetworks <= 5:
+            ax1.legend()
+        ax1.set_title(f'{method.capitalize()} Flow in Subnetworks Over Time')
+
+        ax2.set_xlabel('Time Steps')
+        ax2.set_ylabel('Rate of Change')
+        if num_subnetworks <= 5:
+            ax2.legend()
+        ax2.set_title('Rate of Change of Flow in Subnetworks Over Time')
+
+        plt.tight_layout()
+        plt.show()
+
+
+    def swhueristic_predict(self,iter):
+        start = time.time()
+        zero_nodes = set()
+        q = 0
+        targets = np.argsort(np.ma.masked_equal(self.weights, 0).min(axis=0).filled(self.rho+1)).tolist()
+        while targets and q <= iter:
+            target = targets.pop(0)
+            subnetwork = self.swDFS(target)
+            radius = self.spectral_radius([subnetwork])
+            if radius[0] < 1:
+                for node1, node2, _ in subnetwork:
+                    zero_nodes.add(node1)
+                    zero_nodes.add(node2)
+                    try:
+                        targets.remove(node1)
+                    except ValueError:
+                        pass
+                    try:
+                        targets.remove(node2)
+                    except ValueError:
+                        pass
+            q+=1
+        self.swhpredicted = zero_nodes
+        stop = time.time()
+        self.swhflop = (stop-start)
+    
+    def swDFS(self,target):
+        subnetwork = []
+        seen = set()
+        seen.add(target)
+        nodes = [target]
+        while nodes:
+            new_nodes = []
+            for node in nodes:
+                incoming_edges = self.G.in_edges(node, data=True)
+                color_groups = {} 
+                color_weights = {}    
+                for u, v, data in incoming_edges:
+                    color = data.get('color')
+                    if color not in color_groups:
+                        color_groups[color] = []
+                        color_weights[color] = 0
+                    color_groups[color].append((u, v))
+                    weight = self.weights[u, v]
+                    color_weights[color] += weight
+                min_color = min(color_weights, key=color_weights.get)
+                for (u, v) in color_groups[min_color]:
+                    subnetwork.append((u, v, min_color))
+                    if u not in seen:
+                        new_nodes.append(u)
+            seen.update(new_nodes)
+            nodes = new_nodes
+        return subnetwork
+    
+    def greedyhueristic_predict(self,iter):
+        start = time.time()
+        zero_nodes = set()
+        q = 0
+        targets = sorted(self.G.nodes, key=lambda node: self.G.in_degree(node), reverse=True)
+        while targets and q <= iter:
+            target = targets.pop(0)
+            subnetwork = self.greedyDFS(target)
+            radius = self.spectral_radius([subnetwork])
+            if radius[0] < 1:
+                for node1, node2, _ in subnetwork:
+                    zero_nodes.add(node1)
+                    zero_nodes.add(node2)
+                    try:
+                        targets.remove(node1)
+                    except ValueError:
+                        pass
+                    try:
+                        targets.remove(node2)
+                    except ValueError:
+                        pass
+            q+=1
+        self.greedypredicted = zero_nodes
+        stop = time.time()
+        self.greedyflop = (stop-start)
+    
+    def greedyDFS(self,target):
+        subnetwork = []
+        seen = set()
+        seen.add(target)
+        nodes = [target]
+        while nodes:
+            new_nodes = []
+            for node in nodes:
+                incoming_edges = self.G.in_edges(node, data=True)
+                color_groups = {} 
+                color_weights = {}    
+                for u, v, data in incoming_edges:
+                    color = data.get('color')
+                    if color not in color_groups:
+                        color_groups[color] = []
+                        color_weights[color] = 0
+                    color_groups[color].append((u, v))
+                    weight = self.weights[u, v]
+                    color_weights[color] += weight
+                max_color = max(color_groups, key=lambda color: len(color_groups[color]))
+                for (u, v) in color_groups[max_color]:
+                    subnetwork.append((u, v, max_color))
+                    if u not in seen:
+                        new_nodes.append(u)
+            seen.update(new_nodes)
+            nodes = new_nodes
+        return subnetwork
+    
+    def spectral_condition(self):
+        eigenvalues = np.linalg.eigvals(self.weights)
+    
+        # Get the largest and smallest eigenvalues
+        lambda_max = np.max(np.real(eigenvalues))  # Real part to avoid issues with complex eigenvalues
+        lambda_min = np.min(np.real(eigenvalues))
+    
+        # Return the spectral condition number
+        return np.abs(lambda_max / lambda_min)
+    def sensitivity_analysis(self, epsilon=1e-6):
+        eigenvalues_original = np.linalg.eigvals(self.weights)
+        lambda_max_original = np.max(np.real(eigenvalues_original))
+        sensitivity_matrix = np.zeros_like(self.weights)
+    
+        # Perturb each element of the matrix and calculate the new largest eigenvalue
+        for i in range(self.weights.shape[0]):
+            for j in range(self.weights.shape[1]):
+                if self.weights[i,j] != 0:
+                # Perturb element A[i, j] by epsilon
+                    A_perturbed = self.weights.copy()
+                    A_perturbed[i, j] += epsilon
+                    
+                    # Compute the largest eigenvalue of the perturbed matrix
+                    eigenvalues_perturbed = np.linalg.eigvals(A_perturbed)
+                    lambda_max_perturbed = np.max(np.real(eigenvalues_perturbed))
+                    
+                    # Compute the change in the largest eigenvalue (sensitivity)
+                    sensitivity_matrix[i, j] = np.abs(lambda_max_perturbed - lambda_max_original) / epsilon
+            
+        return sensitivity_matrix
+
+
+
+    def visualize_subnetwork_graph(self):
+        """Creates a graph where each subnetwork is a node, and edges represent shared nodes."""
+        G = nx.Graph()
+
+        # Convert each subnetwork into a set of nodes for comparison
+        subnetwork_nodes = [set(node for node, _, _ in sub) for sub in self.subnetworks]
+
+        # Add nodes (subnetworks)
+        for i in range(len(subnetwork_nodes)):
+            G.add_node(i, size=len(subnetwork_nodes[i]))
+
+        # Add edges if subnetworks share nodes
+        for i in range(len(subnetwork_nodes)):
+            for j in range(i + 1, len(subnetwork_nodes)):
+                shared_nodes = len(subnetwork_nodes[i] & subnetwork_nodes[j])
+                if shared_nodes > 0:
+                    G.add_edge(i, j, weight=shared_nodes)
+
+        # Visualization
+        plt.figure(figsize=(8, 6))
+        pos = nx.spring_layout(G, seed=42)
+        sizes = [G.nodes[n]['size'] * 100 for n in G.nodes]  # Scale node sizes
+        edge_weights = [G[u][v]['weight'] for u, v in G.edges]
+
+        nx.draw(G, pos, with_labels=True, node_size=sizes, edge_color=edge_weights, width=2, edge_cmap=plt.cm.Blues)
+        sm = plt.cm.ScalarMappable(cmap=plt.cm.Blues, norm=plt.Normalize(vmin=min(edge_weights), vmax=max(edge_weights)))
+        sm.set_array([])  # Fix: Associate it with an empty array
+        plt.colorbar(sm, ax=plt.gca(), label="Shared Nodes Strength")
+        plt.title("Subnetwork Graph")
+        plt.show()
+
+    def visualize_subnetwork_intersection(self):
+        """Creates graphs for every pair of subnetworks that only show their intersections."""
+        for i in range(len(self.subnetworks)):
+            for j in range(i + 1, len(self.subnetworks)):
+                intersection = set(self.subnetworks[i]) & set(self.subnetworks[j])  # Common edges
+                
+                if intersection:
+                    G = nx.DiGraph()
+                    G.add_edges_from([(u, v, {'color': color}) for u, v, color in intersection])
+
+                    plt.figure(figsize=(6, 4))
+                    pos = nx.spring_layout(G)
+                    
+                    # Extract edge colors
+                    colors = [data['color'] for _, _, data in G.edges(data=True)]
+                    cmap = plt.get_cmap('viridis')
+                    norm = mcolors.Normalize(vmin=min(colors), vmax=max(colors))
+                    edge_colors = [cmap(norm(color)) for color in colors]
+
+                    nx.draw(G, pos, with_labels=True, edge_color=edge_colors, width=2, node_size=500)
+                    
+                    # Add legend
+                    unique_colors = sorted(set(colors))
+                    patches_list = [patches.Patch(color=cmap(norm(color)), label=f'Color {color}') for color in unique_colors]
+                    plt.legend(handles=patches_list, title="Edge Colors")
+                    
+                    plt.title(f"Intersection of Subnetworks {i+1} and {j+1}")
+                    plt.show()
+    def visualize_subnetwork_venn(self):
+        """Creates a Venn-like diagram where subnetworks are circles, sized by subnetwork size, and overlap based on shared nodes."""
+        subnetworks = self.subnetworks
+        sub_sizes = [len(sub) for sub in subnetworks]
+        sub_sets = [set(sub) for sub in subnetworks]
+        num_subs = len(subnetworks)
+        
+        # Compute pairwise overlaps
+        overlaps = np.zeros((num_subs, num_subs))
+        for i in range(num_subs):
+            for j in range(i + 1, num_subs):
+                shared = len(sub_sets[i] & sub_sets[j])
+                overlaps[i, j] = overlaps[j, i] = shared
+        
+        # Scale sizes for visualization
+        max_size = max(sub_sizes)
+        radii = [np.sqrt(size / max_size) * 2 for size in sub_sizes]  # Normalize radii
+        
+        # Initialize positions
+        positions = np.random.rand(num_subs, 2) * 10  # Spread randomly in space
+        
+        # Optimize placement based on overlaps
+        for _ in range(500):  # Adjust positions iteratively
+            for i in range(num_subs):
+                for j in range(i + 1, num_subs):
+                    if overlaps[i, j] > 0:  # If they share elements, bring closer
+                        direction = positions[j] - positions[i]
+                        distance = np.linalg.norm(direction)
+                        desired_distance = (radii[i] + radii[j]) * (1 - overlaps[i, j] / max_size)
+                        if distance > 0 and distance > desired_distance:
+                            move_vector = direction / distance * (distance - desired_distance) * 0.05
+                            positions[i] += move_vector
+                            positions[j] -= move_vector
+        
+        # Plot circles
+        cmap = cm.get_cmap("tab10", num_subs)
+        colors = [mcolors.to_rgba(cmap(i)) for i in range(num_subs)]
+        fig, ax = plt.subplots(figsize=(8, 8))
+        texts = []
+        for i in range(num_subs):
+            circle = plt.Circle(positions[i], radii[i], alpha=0.4, color=colors[i], label=f'Sub {i+1}')
+            ax.add_patch(circle)
+            #texts.append(ax.text(*positions[i], f'Sub {i+1}', ha='center', va='center'))
+        
+        adjust_text(texts)
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_aspect('equal')
+        plt.title('Subnetwork Visualization')
+        plt.legend()
+        plt.show()
+    
+    def visualize_node_histogram(self):
+        """Creates a histogram showing the number of subnetworks each node appears in."""
+        node_counts = defaultdict(int)
+        for sub in self.subnetworks:
+            for node1, node2, _ in sub:
+                node_counts[node1] += 1
+                node_counts[node2] +=1
+        
+        plt.figure(figsize=(8, 6))
+        plt.bar(node_counts.keys(), node_counts.values(), edgecolor='black')
+        plt.xlabel('Node')
+        plt.ylabel('Total Appearances')
+        plt.title('Node Appearances in Subnetworks')
+        plt.xticks(sorted(node_counts.keys()))
+        plt.show()
+
