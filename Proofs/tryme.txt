@@ -67,3 +67,33 @@ coarse grain graph (graph of subgraphs ) edges indicate subnetworks overlap
     -- Overall graph structure
 
 
+
+(i) 
+read papers for next steps
+(ii)
+ prove noninclusion with contradiction
+    does a subnetwork have two strongly connected components? (this is a consequence of enchi's proof)
+(iii)
+rg
+iterate until we find connected
+watts strogatz
+make edges go both ways
+iterate 
+barabasi albert
+make edges go both ways
+
+(iv)
+symetric difference of subnetworks 
+
+
+(v)
+try vertices instead of edges for numbering overlap
+
+
+(vi) 
+what keeps cascades from spreading 
+
+
+ideas:
+    time dependent weights
+    time dependent graph structure

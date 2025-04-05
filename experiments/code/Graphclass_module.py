@@ -22,27 +22,24 @@ class Graphclass:
             self.num_nodes- int (Number of nodes in the graph)
             self.full- boolean (Whether or not the BFS should start at every node)
             self.num_colors- int (number of colors randomly chosen from and assigned to edges)
+            
         From Constructor:
             self.G- nx graph object (a directed graph randomly constructed based on input method)
-                options include random, large, Watts-Strogatz, Barasi_Albert, and random geometric
+                options include random, large (goliath), Watts-Strogatz, Barasi_Albert, and random geometric
             self.weights- np.array (the randomly generated weighted adjacency matrix for G)
             self.subnetworks- list (list of subnetworks found via BFS, with any hanging nodes removed)
-            self.dirty_subnetworks- list (list of subnetworks found via BFS, complete with hanging nodes)
+            self.subnetworks- list (list of subnetworks found via BFS, complete with hanging nodes)
             self.radii- list (spectral radius of each subnetwork)
             self.predicted- list (nodes predicted to go to zero)
-            self.dirty_radii- list (radii of dirty subnetworks)
-            self.dirty_predicted- list (nodes in dirty subnetworks predicted to go to zero)
+            self.predicted- list (nodes in subnetworks predicted to go to zero)
             self.bfsflop- float (time for the BFS search to terminate)
             self.history- dict (value of each node at each timestep during behavior simulation)
             self.converged- list (the values that each node converged to)
             self.zero_nodes- list (the nodes which went to zero during the simulation)
         if full== True
             self.full_subnetwork- list (list of lists of subnetworks obtained by starting at each node)
-            self.dirty_full_subnetwork- list (list of lists of subnetworks obtained by starting at each node complete with hanging nodes)
             self.full_radii- list (spectral radius of subnetworks)
             self.full_predicted- list (nodes which are predicted to go to zero)
-            self.dirty_full_radii- list (radii including hanging nodes)
-            self.dirty_full_predicted- list (nodes predicted to go to zero, including hanging nodes)
             self.fullflop- float (time for full prediction code to run)
      
     Methods:
@@ -56,6 +53,7 @@ class Graphclass:
         self.num_nodes = num_nodes
         self.full = full
         self.num_colors = num_colors
+        self.method = method
         # Creates desired graph type
         if method == 'random':
              self.G = self.create_graph(num_nodes, num_edges, num_colors)
@@ -71,22 +69,19 @@ class Graphclass:
         self.weights = self.create_weights()
         # Process of identifying subnetworks, calculating radii, and making predictions
         start = time.time()
-        self.subnetworks, self.dirty_subnetworks = self.breadth_first()
-        self.dirty_radii = self.spectral_radius(self.dirty_subnetworks)
-        self.dirty_predicted = self.predict(self.dirty_radii, self.dirty_subnetworks)
+        self.subnetworks = self.breadth_first()
         self.radii = self.spectral_radius(self.subnetworks)
         self.predicted = self.predict(self.radii,self.subnetworks)
         stop = time.time()
         self.bfsflop = stop - start
         # Simulation of behavior
         self.history, self.converged, self.zero_nodes = self.simulate_linear()
-        # Repeats the above BFS but starts at every node
+        # Repeats the above BFS starting at every node
         if full:
             # Process of identifying subnetworks, calculating radii, and making predictions
             start = time.time()
-            self.full_subnetwork, self.dirty_full_subnetwork = self.full_subnetworks()
+            self.full_subnetwork = self.full_subnetworks()
             self.full_predicted, self.full_radii = self.predict_full(self.full_subnetwork)
-            self.dirty_full_predicted, self.dirty_full_radii = self.predict_full(self.dirty_full_subnetwork)
             stop = time.time()
             self.fullflop = stop - start
 
@@ -95,63 +90,70 @@ class Graphclass:
     """Methods to create Graph objects """
    
     def Watts_Strogatz(self):
-        num_nodes = self.num_nodes
-        k = max(3, num_nodes // 5)  # Each node is connected to `k` nearest neighbors
-        p = 0.3  # Probability of rewiring an edge
-        G_ws = nx.watts_strogatz_graph(num_nodes, k, p)
-        # Convert it to a directed graph (by assigning directions randomly)
-        G = nx.DiGraph()
-        G.add_nodes_from(G_ws.nodes())
-        for u, v in G_ws.edges():
-            if random.random() < 0.5:
+        """Creates a Watts Strogatz graph and then gives it colored bidirectional edges"""
+        while True:
+            num_nodes = self.num_nodes
+             # Each node is connected to `k` nearest neighbors
+            k = max(1, num_nodes // 5) 
+            # Probability of rewiring an edge
+            p = 0.3  
+            G_ws = nx.watts_strogatz_graph(num_nodes, k, p)
+            G = nx.DiGraph()
+            G.add_nodes_from(G_ws.nodes())
+            for u, v in G_ws.edges():
+                # Add edges in both directions
                 G.add_edge(u, v)
-            else:
                 G.add_edge(v, u)
-        # Assign random colors to edges
-        for u, v in G.edges():
-            G[u][v]['color'] = random.randint(0, self.num_colors)
-        return G
+            # Assign random colors to edges
+            for u, v in G.edges():
+                G[u][v]['color'] = random.randint(0, self.num_colors)
+            # Check strong connectivity
+            if nx.is_strongly_connected(G):
+                return G
     
     def Barabasi_Albert(self):
-        num_nodes = self.num_nodes
-        m = max(3, num_nodes // 5)  # Each new node attaches to `m` existing nodes
-        # Create an undirected Barabási-Albert graph
-        G_ba = nx.barabasi_albert_graph(num_nodes, m)
-        # Convert it to a directed graph
-        G = nx.DiGraph()
-        G.add_nodes_from(G_ba.nodes())
-        for u, v in G_ba.edges():
-            # Assign direction from lower-degree node to higher-degree node
-            if G_ba.degree[u] < G_ba.degree[v]:
+        """Creates a Barabasi Albert graph and then gives it colored bidirectional edges"""
+        while True:
+            num_nodes = self.num_nodes
+            # Each new node attaches to `m` existing nodes
+            m = max(1, num_nodes // 5)  
+            G_ba = nx.barabasi_albert_graph(num_nodes, m)
+            # Convert it to a directed graph with bidirectional edges
+            G = nx.DiGraph()
+            G.add_nodes_from(G_ba.nodes())
+            for u, v in G_ba.edges():
                 G.add_edge(u, v)
-            else:
-                G.add_edge(v, u)
-        # Assign random colors to edges
-        for u, v in G.edges():
-            G[u][v]['color'] = random.randint(0, self.num_colors)
-        return G
+                G.add_edge(v, u) 
+            # Assign random colors to edges
+            for u, v in G.edges():
+                G[u][v]['color'] = random.randint(0, self.num_colors)
+            if nx.is_strongly_connected(G):
+                return G
     
     def random_geometric(self):
-        num_nodes = self.num_nodes
-        m = max(3, num_nodes // 5)  # Each new node attaches to `m` existing nodes
-        # Create an undirected Barabási-Albert graph
-        G_ba = nx.barabasi_albert_graph(num_nodes, m)
-        # Convert it to a directed graph
-        G = nx.DiGraph()
-        G.add_nodes_from(G_ba.nodes())
-        for u, v in G_ba.edges():
-            # Assign direction from lower-degree node to higher-degree node
-            if G_ba.degree[u] < G_ba.degree[v]:
+        """Creates a Radom Geometric graph and then gives it colored bidirectional edges"""
+        while True:
+            num_nodes = self.num_nodes
+            # Each new node attaches to `m` existing nodes
+            m = max(3, num_nodes // 5)  
+            G_ba = nx.barabasi_albert_graph(num_nodes, m)
+            # Convert to a directed graph with bidirectional edges
+            G = nx.DiGraph()
+            G.add_nodes_from(G_ba.nodes())
+            for u, v in G_ba.edges():
                 G.add_edge(u, v)
-            else:
                 G.add_edge(v, u)
-        # Assign random colors to edges
-        for u, v in G.edges():
-            G[u][v]['color'] = random.randint(0, self.num_colors)
-        return G
+            # Assign random colors to edges
+            for u, v in G.edges():
+                G[u][v]['color'] = random.randint(0, self.num_colors)
+            if nx.is_strongly_connected(G):
+                return G
+
     
     def Goliath(self):
+        """Creates a strongly connected graph with colored edges, good for especially large graph"""
         G = nx.DiGraph()
+        # Probability of an edge
         edge_probability = 0.05
         num_nodes = self.num_nodes
         G.add_nodes_from(range(num_nodes))
@@ -174,6 +176,7 @@ class Graphclass:
         return G
 
     def use_premade(self, G, W):
+        """Uses a premade graph to overwrite attributes, all other attributes need to be reinitialized"""
         self.G = G
         self.weights = W
         self.num_nodes = len(G.nodes)
@@ -200,23 +203,27 @@ class Graphclass:
         return G
     
     def make_custom_graph(self, edges):
+        """Older version of use premade which uses inbuilt graphs and weights"""
         #edges = [(0, 2, 1), (0, 1, 1), (1, 3, 0), (2, 0, 1), (2, 3, 0), (3, 2, 0)]
         #edges = [(0, 2, 1),(0, 1, 0),(1, 0, 1),(1, 3, 1),(2,1,1),(3,2,0)]
         #edges = [(0,3,1),(1,2,1),(2,1,1),(2,0,0),(3,0,1),(3,2,1)]
+        edges = [(0,1,0),(1,0,1),(1,2,0),(2,1,0)]
         G = nx.DiGraph()
         for u, v, color in edges:
             G.add_edge(u, v, color=color)
         self.G = G
-        self.weights = self.create_weights()
+        self.weights = np.array([[0,10,0],[10,0,0.5],[0,0.5,0]])
         self.num_nodes = len(edges)
     
     def create_weights(self, rho=2):
         """"Creates a random weight matrix for a given graph"""
+        # limit of the uniform distribution from which the weights are drawn from 
         self.rho = rho
         matrix = np.zeros((self.num_nodes, self.num_nodes))
         for i, j in self.G.edges():
             matrix[i, j] = np.random.uniform(0, rho)
         return matrix
+
 
     """Methods to identify subnetworks"""
     
@@ -301,69 +308,37 @@ class Graphclass:
                     else:
                         new_subnetwork[0] = combo
                         working_subnetworks.append(new_subnetwork)
-        subnetworks = self.remove_dup(self.remove_hangers(completed_subnetworks))
-        return subnetworks, completed_subnetworks
+        subnetworks = self.remove_dup(completed_subnetworks)
+        return subnetworks
     
     def flatten(self, nested_list):
         """Helper function to flatten nested lists"""
         result = []
         for item in nested_list:
             if isinstance(item, list):
-                result.extend(self.flatten(item))  # Recursively flatten the nested list
+                result.extend(self.flatten(item)) 
             else:
-                result.append(item)  # Append the item if it's not a list
+                result.append(item) 
         return result
+    
     def remove_dup(self,subnetworks):
-        """removes any duplicate subnetworks"""
+        """helper function to remove any duplicate subnetworks"""
         seen = set()
         result = []
         for sublist in subnetworks:
-            # Sort the tuples in the sublist to get a consistent representation
             sorted_sublist = tuple(sorted(sublist))
-            # If this sorted sublist is already in the seen set, skip it
             if sorted_sublist not in seen:
-                result.append(sublist)  # Keep this sublist
-                seen.add(sorted_sublist)  # Add the sorted version to the seen set
+                result.append(sublist) 
+                seen.add(sorted_sublist)
         return result
     
-    def remove_hangers(self, subnetworks):
-        """Remove all edges of nodes of degree 1."""
-        cleaned = []
-        for subnetwork in subnetworks:
-            # Track node degrees across the entire subnetwork
-            node_degree = Counter()
-            # First pass: count the degree of each node in the subnetwork
-            for node1, node2, color in subnetwork:
-                node_degree[node1] += 1
-                node_degree[node2] += 1
-            # Remove edges with nodes that have degree 1
-            done = False
-            while not done:
-                # Identify nodes with degree 1 (hanging nodes)
-                hanging_nodes = {node for node, degree in node_degree.items() if degree == 1}
-                if not hanging_nodes:
-                    # No hanging nodes, we can stop
-                    done = True
-                else:
-                    # Filter out the edges involving hanging nodes
-                    filtered_edges = [(node1, node2, color) for (node1, node2, color) in subnetwork if
-                                      node1 not in hanging_nodes and node2 not in hanging_nodes]
-                    # Update the node degrees after filtering
-                    node_degree = Counter()
-                    for node1, node2, color in filtered_edges:
-                        node_degree[node1] += 1
-                        node_degree[node2] += 1
-                    # Set the filtered edges as the new subnetwork
-                    subnetwork = filtered_edges
-            # After cleaning, add the subnetwork to the result
-            cleaned.append(subnetwork)
-        return cleaned
+  
     
 
     """Methods to aid in visualization"""
 
-    def visualize_graph(self, G):
-        """Draws a graph with colored edges, provides a legend"""
+    def visualize_graph(self, G, radius=None):
+        """Draws a graph with colored edges"""
         plt.clf()
         colors = [data['color'] for _, _, data in G.edges(data=True)]
         cmap = plt.get_cmap('viridis')
@@ -371,20 +346,23 @@ class Graphclass:
         edge_colors = [cmap(norm(color)) for color in colors]
         unique_colors = sorted(set(colors))
         patches_list = [patches.Patch(color=cmap(norm(color)), label=f'Color {color}') for color in unique_colors]
-        pos = nx.spring_layout(G)  # Usually uses spring
-        nx.draw(G, pos, with_labels=True, edge_color=edge_colors, width=2, node_size=500,
-                connectionstyle='arc3, rad = 0.05')
+        pos = nx.spring_layout(G, seed=42)
+        nx.draw(G, pos, with_labels=True, edge_color=edge_colors, width=2, node_size=500, connectionstyle='arc3, rad = 0.05')
         plt.legend(handles=patches_list, title="Edge Colors")
+        if radius:
+            plt.title(radius)
         plt.show()
 
     def visualize_subnetworks(self, subnetworks):
-        for subnetwork in subnetworks:
+        """Calls visualize graph with the radius argument to draw each subnetwork graph"""
+        for i, subnetwork in enumerate(subnetworks):
             G = nx.DiGraph()
             for u, v, color in subnetwork:
                 G.add_edge(u, v, color=color)
-            self.visualize_graph(G)
+            self.visualize_graph(G, self.radii[i])
 
     def visualize_behavior(self):
+        """Creates a line plot of the flow at each node for each time step"""
         for node, states in self.history.items():
             plt.plot(states, label=f"Node {node}")
         plt.xlabel('Iteration')
@@ -394,6 +372,7 @@ class Graphclass:
         plt.show()
 
     def visualize_flow(self):
+        """Animation of the flow between nodes"""
         fig, ax = plt.subplots(figsize=(7, 7))
         pos = nx.spring_layout(self.G, seed=42, k=0.9, scale=4)  # k adjusts spacing between nodes, scale makes them bigger
         colors = ['black','red', 'orange', 'yellow', 'lightgreen', 'green']
@@ -420,6 +399,7 @@ class Graphclass:
         display(html)
 
     def visualize_node_flow(self, node, depth):
+        """Visualizes the flow around a node to a certain depth"""
         fig, ax = plt.subplots(figsize=(7, 7))
         subgraph_nodes = self.get_nodes_within_depth(node, depth)
         subgraph = self.G.subgraph(subgraph_nodes)
@@ -453,6 +433,7 @@ class Graphclass:
         display(html)
 
     def visualize_flow_of_subnetworks(self, method = 'average'):
+        """Creates a line plot of the flow in subnetworks, plots using the methods: average, max, and min"""
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
         num_subnetworks = len(self.subnetworks)
         for subnetwork in self.subnetworks:
@@ -494,53 +475,93 @@ class Graphclass:
         plt.tight_layout()
         plt.show()
 
+    def unique_subnetworks_with_radii(self, full_subnetwork, full_radii):
+        """Flattens and removes duplicate subnetworks while preserving their spectral radii."""
+        unique_subnetworks = []
+        unique_radii = []
+        seen = set()
+
+        for subnetwork_list, radius_list in zip(full_subnetwork, full_radii):
+            for subnetwork, radius in zip(subnetwork_list, radius_list):
+                sub_set = frozenset(subnetwork)  # Use frozenset to detect duplicates
+                if sub_set not in seen:
+                    seen.add(sub_set)
+                    unique_subnetworks.append(subnetwork)
+                    unique_radii.append(radius)
+
+        return unique_subnetworks, unique_radii
+
     def visualize_subnetwork_graph(self):
-        """Creates a graph where each subnetwork is a node, and edges represent shared nodes."""
+        """Creates a graph where each subnetwork is a node, and edges represent shared nodes.
+        Nodes are outlined in red if spectral radius < 1, green otherwise."""
+        # Flatten and remove duplicates while keeping spectral radii aligned
+        unique_subnetworks, unique_radii = self.unique_subnetworks_with_radii(self.full_subnetwork, self.full_radii)
         G = nx.Graph()
         # Convert each subnetwork into a set of nodes for comparison
-        subnetwork_nodes = [set(node for node, _, _ in sub) for sub in self.subnetworks]
+        subnetwork_nodes = [set(node for node, _, _ in sub) for sub in unique_subnetworks]
         # Add nodes (subnetworks)
         for i in range(len(subnetwork_nodes)):
             G.add_node(i, size=len(subnetwork_nodes[i]))
         # Add edges if subnetworks share nodes
+        edge_colors = []
         for i in range(len(subnetwork_nodes)):
             for j in range(i + 1, len(subnetwork_nodes)):
-                shared_nodes = len(subnetwork_nodes[i] & subnetwork_nodes[j])
-                if shared_nodes > 0:
-                    G.add_edge(i, j, weight=shared_nodes)
+                shared_nodes = subnetwork_nodes[i] & subnetwork_nodes[j]  # Nodes in both subnetworks
+                if shared_nodes:
+                    # Check if any shared node is in zero_nodes
+                    if any(node in self.zero_nodes for node in shared_nodes):
+                        edge_color = "red"  # Critical shared node
+                    else:
+                        edge_color = "green"  # Normal shared node
+                    
+                    G.add_edge(i, j, weight=len(shared_nodes), color=edge_color)
+                    edge_colors.append(edge_color)
+        # Node border colors based on spectral radius
+        node_edge_colors = ["red" if radius < 1 else "green" for radius in unique_radii]
         # Visualization
         plt.figure(figsize=(8, 6))
-        pos = nx.spring_layout(G, seed=42)
+        pos = nx.spring_layout(G, seed=42) 
         sizes = [G.nodes[n]['size'] * 100 for n in G.nodes]  # Scale node sizes
-        edge_weights = [G[u][v]['weight'] for u, v in G.edges]
-        nx.draw(G, pos, with_labels=True, node_size=sizes, edge_color=edge_weights, width=2, edge_cmap=plt.cm.Blues)
-        sm = plt.cm.ScalarMappable(cmap=plt.cm.Blues, norm=plt.Normalize(vmin=min(edge_weights), vmax=max(edge_weights)))
-        sm.set_array([])  # Fix: Associate it with an empty array
-        plt.colorbar(sm, ax=plt.gca(), label="Shared Nodes Strength")
-        plt.title("Subnetwork Graph")
+        nx.draw_networkx_edges(G, pos, width=2, edge_color=edge_colors)
+        nx.draw_networkx_nodes(G, pos, node_size=sizes, node_color="white",
+                            edgecolors=node_edge_colors, linewidths=1.5)
+        nx.draw_networkx_labels(G, pos)
+        plt.title("Subnetwork Graph with Critical Shared Nodes Highlighted")
         plt.show()
 
     def visualize_subnetwork_intersection(self):
-        """Creates graphs for every pair of subnetworks that only show their intersections."""
+        """Creates subplots for every pair of subnetworks showing both their intersection and symmetric difference."""
         for i in range(len(self.subnetworks)):
             for j in range(i + 1, len(self.subnetworks)):
-                intersection = set(self.subnetworks[i]) & set(self.subnetworks[j])  # Common edges    
-                if intersection:
-                    G = nx.DiGraph()
-                    G.add_edges_from([(u, v, {'color': color}) for u, v, color in intersection])
-                    plt.figure(figsize=(6, 4))
-                    pos = nx.spring_layout(G)             
-                    # Extract edge colors
-                    colors = [data['color'] for _, _, data in G.edges(data=True)]
-                    cmap = plt.get_cmap('viridis')
-                    norm = mcolors.Normalize(vmin=min(colors), vmax=max(colors))
-                    edge_colors = [cmap(norm(color)) for color in colors]
-                    nx.draw(G, pos, with_labels=True, edge_color=edge_colors, width=2, node_size=500)                   
-                    # Add legend
-                    unique_colors = sorted(set(colors))
-                    patches_list = [patches.Patch(color=cmap(norm(color)), label=f'Color {color}') for color in unique_colors]
-                    plt.legend(handles=patches_list, title="Edge Colors")                    
-                    plt.title(f"Intersection of Subnetworks {i+1} and {j+1}")
+                sub_i = set(self.subnetworks[i])
+                sub_j = set(self.subnetworks[j])
+                intersection = sub_i & sub_j  # Common edges    
+                sym_diff = sub_i ^ sub_j  # Symmetric difference (union minus intersection)
+                if intersection or sym_diff:
+                    fig, axes = plt.subplots(1, 2, figsize=(12, 5))    
+                    for ax, edges, title in zip(axes, [intersection, sym_diff], 
+                                                [f"Intersection of Subnetworks {i+1} and {j+1}", 
+                                                f"Symmetric Difference of Subnetworks {i+1} and {j+1}"]):
+                        G = nx.DiGraph()
+                        G.add_edges_from([(u, v, {'color': color}) for u, v, color in edges])
+                        pos = nx.spring_layout(G, seed=42)      
+                        # Extract edge colors
+                        if G.number_of_edges() > 0:
+                            colors = [data['color'] for _, _, data in G.edges(data=True)]
+                            cmap = plt.get_cmap('viridis')
+                            norm = mcolors.Normalize(vmin=min(colors), vmax=max(colors))
+                            edge_colors = [cmap(norm(color)) for color in colors]
+                        else:
+                            edge_colors = []
+                            colors = []
+                        nx.draw(G, pos, with_labels=True, edge_color=edge_colors, width=2, node_size=500, ax=ax, connectionstyle='arc3, rad = 0.05')
+                        # Add legend
+                        if colors:
+                            unique_colors = sorted(set(colors))
+                            patches_list = [patches.Patch(color=cmap(norm(color)), label=f'Color {color}') for color in unique_colors]
+                            ax.legend(handles=patches_list, title="Edge Colors")
+                        ax.set_title(title)
+                    plt.tight_layout()
                     plt.show()
 
     def visualize_subnetwork_venn(self):
@@ -605,6 +626,64 @@ class Graphclass:
         plt.show()
 
 
+    def ghost_edges(self):
+        """Visualizes the graph where dead subnetworks are ghosted out and barrier nodes are marked in green"""
+        ghost = self.dead_edges() 
+        G = self.G
+        # Extract colors from edges
+        colors = { (u, v): data['color'] for u, v, data in G.edges(data=True) }
+        cmap = plt.get_cmap('viridis')
+        norm = mcolors.Normalize(vmin=min(colors.values()), vmax=max(colors.values()))
+        # Convert ghost edges into a set for quick lookup
+        ghost_edges = {(u, v) for u, v, _ in ghost}
+        # Identify nodes that are the origin of ghost edges
+        ghost_origin_nodes = {u for u, v, _ in ghost}
+        ghost_origin_nodes.update({v for u,v, _ in ghost})
+        # Add all edges originating from ghost-origin nodes to the ghost edges set
+        for u in ghost_origin_nodes:
+            for v in G.neighbors(u):
+                ghost_edges.add((u, v))  # Mark these as ghost edges
+        # Separate normal and ghost edges
+        normal_edges = [(u, v) for u, v in G.edges if (u, v) not in ghost_edges and (v, u) not in ghost_edges]
+        ghost_edges = [(u, v) for u, v in ghost_edges if (u, v) in G.edges or (v, u) in G.edges]
+        # Identify nodes with excessive same-color incoming edges
+        incoming_edges_by_color = {}  # {node: {color: count}}
+        for u, v in G.edges:
+            color = colors[(u, v)]
+            if v not in incoming_edges_by_color:
+                incoming_edges_by_color[v] = {}
+            if color not in incoming_edges_by_color[v]:
+                incoming_edges_by_color[v][color] = 0
+            incoming_edges_by_color[v][color] += 1
+        # Nodes that should be bordered in green
+        green_border_nodes = {node for node, color_counts in incoming_edges_by_color.items() if any(count >= 2 for count in color_counts.values())}
+        pos = nx.spring_layout(G, seed=42)
+        # Draw normal edges first (excluding ghost edges)
+        normal_edge_colors = [cmap(norm(colors[edge])) for edge in normal_edges]
+        nx.draw_networkx_edges(G, pos, edgelist=normal_edges, edge_color=normal_edge_colors, width=2, connectionstyle='arc3,rad=0.05')
+        # Draw ghost edges as dotted lines
+        ghost_edge_colors = [cmap(norm(colors[edge])) for edge in ghost_edges]
+        nx.draw_networkx_edges(G, pos, edgelist=ghost_edges, edge_color=ghost_edge_colors, width=2, alpha=0.5, style='dotted', connectionstyle='arc3,rad=0.05')
+        # Draw normal nodes
+        normal_nodes = [node for node in G.nodes if node not in ghost_origin_nodes and node not in green_border_nodes]
+        nx.draw_networkx_nodes(G, pos, nodelist=normal_nodes, node_size=250)
+        # Draw ghost-origin nodes with dashed outline and higher alpha
+        nx.draw_networkx_nodes(G, pos, nodelist=ghost_origin_nodes, node_size=250, alpha=0.5)
+        green = [node for node in green_border_nodes if node not in ghost_origin_nodes]
+        # Draw green-bordered nodes
+        nx.draw_networkx_nodes(G, pos, nodelist=green, node_size=250, node_color='green', linewidths=2)
+        extraspecial = [node for node in ghost_origin_nodes and green_border_nodes]
+        nx.draw_networkx_nodes(G, pos, extraspecial, node_size=250, node_color='green', linewidths=2, alpha=0.5)
+        # Draw labels
+        nx.draw_networkx_labels(G, pos)
+        # Legend for edge colors
+        unique_colors = sorted(set(colors.values()))
+        patches_list = [patches.Patch(color=cmap(norm(color)), label=f'Color {color}') for color in unique_colors]
+        plt.legend(handles=patches_list, title="Edge Colors")
+        plt.show()
+
+
+
 
     """Calculation methods for prediction"""
 
@@ -613,18 +692,16 @@ class Graphclass:
         num = self.num_nodes
         weights = self.weights
         radii = []
-        condition = []
         for subnetwork in subnetworks:
             matrix = np.zeros((num,num))
             for node1, node2, _ in subnetwork:
                 matrix[node1][node2] = weights[node1][node2]
             rho = max(abs(np.linalg.eigvals(matrix)))
             radii.append(rho)
-            cond = 0 #rho/min(abs(np.linalg.eigvals(matrix)))
-            condition.append(cond)
         return radii
 
     def simulate_linear(self, initial=None, maxiter=1000, epsilon=1e-10):
+        """Simulates the behavior of a system, implements a tanh to limit behavior between 0 and 1"""
         G = self.G
         weights = self.weights
         self.T = False
@@ -670,6 +747,7 @@ class Graphclass:
         return history, converged, zero_nodes
     
     def predict(self,radii,subnetworks):
+        """Predicts the behavior of a subnetwork based on spectral radius"""
         predicted = set()
         for i in range(len(radii)):
             if radii[i] < 1:
@@ -680,15 +758,16 @@ class Graphclass:
         return predicted
     
     def full_subnetworks(self):
+        """Calculates the full subnetworks by looping BFS"""
         full_subnetworks = []
-        full_dirty = []
         for i in range(self.num_nodes):
-            subnetworks, dirt = self.breadth_first(i)
+            subnetworks = self.breadth_first(i)
             full_subnetworks.append(subnetworks)
-            full_dirty.append(dirt)
-        return full_subnetworks, full_dirty
+        
+        return full_subnetworks
     
     def predict_full(self, s):
+        """Predicts the behavior of full subnetworks based on spectral radius"""
         full_predicted = set()
         full_radii = []
         for subnetworks in s:
@@ -703,7 +782,8 @@ class Graphclass:
     """Methods for perturbing weights and calculating condition number"""
 
     def perturb_weights(self, prange=(-0.5,0.5)):
-        new = Graphclass(4,6,1,self.full)
+        """Creates a new Graphcalss instance with perturbed weights """
+        new = Graphclass(4,6,1,self.method,self.full)
         new.use_premade(self.G, self.weights)
         p = self.weights.copy()
         perturbation = np.random.uniform(prange[0], prange[1], p.shape)
@@ -711,42 +791,36 @@ class Graphclass:
         new.p = p
         new.weights = p
         new.initial = self.initial.copy()
-        new.subnetworks, new.dirty_subnetworks = self.subnetworks, self.dirty_subnetworks
-        new.dirty_radii = new.spectral_radius(new.dirty_subnetworks)
-        new.dirty_predicted = new.predict(new.dirty_radii, new.dirty_subnetworks)
+        new.subnetworks = self.subnetworks
         new.radii = new.spectral_radius(new.subnetworks)
         new.history, new.converged, new.zero_nodes = new.simulate_linear(self.initial)
         new.predicted = new.predict(new.radii, new.subnetworks)
         if self.full:
-            new.dirty_full_subnetwork, new.full_subnetwork = self.dirty_full_subnetwork, self.full_subnetwork
             new.full_predicted, new.full_radii = new.predict_full(new.full_subnetwork)
-            new.dirty_full_predicted, new.dirty_full_radii = new.predict_full(new.dirty_full_subnetwork)
         return new
     
     
 
 
     def perturb_initial(self, prange=(-1e-5,1e-5)):
-        new = Graphclass(4,6,1,self.full)
+        """Creates a new Graphcalss instance with perturbed initial conditions """
+        new = Graphclass(4,6,1,self.method,self.full)
         new.use_premade(self.G, self.weights)
         p = self.initial.copy()
         for i, value in p.items():
             perturbation = np.random.uniform(prange[0], prange[1])
             p[i] += perturbation    
         new.initial = p 
-        new.subnetworks, new.dirty_subnetworks = self.subnetworks, self.dirty_subnetworks
-        new.dirty_radii = new.spectral_radius(new.dirty_subnetworks)
-        new.dirty_predicted = new.predict(new.dirty_radii, new.dirty_subnetworks)
+        new.subnetworks = self.subnetworks
         new.radii = new.spectral_radius(new.subnetworks)
         new.history, new.converged, new.zero_nodes = new.simulate_linear(new.initial)
         new.predicted = new.predict(new.radii, new.subnetworks)
         if self.full:
-            new.dirty_full_subnetwork, new.full_subnetwork = self.dirty_full_subnetwork, self.full_subnetwork
             new.full_predicted, new.full_radii = new.predict_full(new.full_subnetwork)
-            new.dirty_full_predicted, new.dirty_full_radii = new.predict_full(new.dirty_full_subnetwork)
         return new
     
     def initial_lyapunov(self, initial=None, maxiter=100, epsilon=1e-10,perturb=1e-5):
+        """Calculates the lyapunov coefficients based on initial conditions"""
         if initial is None:
             initial = {node: random.uniform(1, 2) for node in self.G.nodes}
         self.initial = initial
@@ -810,6 +884,7 @@ class Graphclass:
         return lyapunov_exponent
     
     def weight_lyapunov(self, initial=None, maxiter=100, epsilon=1e-10, perturb=1e-5):
+        """Calculates the lyapunov coefficients based on weights"""
         if initial is None:
             initial = {node: random.uniform(1, 2) for node in self.G.nodes}
         self.initial = initial
@@ -881,15 +956,8 @@ class Graphclass:
         lyapunov_exponent = total_lyapunov / len(history_current[next(iter(self.G.nodes))])
         return lyapunov_exponent
     
-    def spectral_condition(self):
-        eigenvalues = np.linalg.eigvals(self.weights)
-        # Get the largest and smallest eigenvalues
-        lambda_max = np.max(np.real(eigenvalues))  # Real part to avoid issues with complex eigenvalues
-        lambda_min = np.min(np.real(eigenvalues))
-        # Return the spectral condition number
-        return np.abs(lambda_max / lambda_min)
-    
     def sensitivity_analysis(self, epsilon=1e-6):
+        """Perturbs weight matrix and performs a sensitivity analysis"""
         eigenvalues_original = np.linalg.eigvals(self.weights)
         lambda_max_original = np.max(np.real(eigenvalues_original))
         sensitivity_matrix = np.zeros_like(self.weights)
@@ -911,6 +979,7 @@ class Graphclass:
     """Hueristic methods for prediction"""
 
     def swhueristic_predict(self,iter):
+        """Hueristic method which selects the smallest weighted edges to follow"""
         start = time.time()
         zero_nodes = set()
         q = 0
@@ -937,6 +1006,7 @@ class Graphclass:
         self.swhflop = (stop-start)
     
     def swDFS(self,target):
+        """DFS method which follows the smallest edge weight"""
         subnetwork = []
         seen = set()
         seen.add(target)
@@ -965,6 +1035,7 @@ class Graphclass:
         return subnetwork
     
     def greedyhueristic_predict(self,iter):
+        """Hueristic which seeks to create the largest subnetworks by collecting nodes with the most edges of the same color"""
         start = time.time()
         zero_nodes = set()
         q = 0
@@ -991,6 +1062,7 @@ class Graphclass:
         self.greedyflop = (stop-start)
     
     def greedyDFS(self,target):
+        """DFS which follows paths with the most edges of the same color"""
         subnetwork = []
         seen = set()
         seen.add(target)
@@ -1069,3 +1141,12 @@ class Graphclass:
                         nodes_within_depth.append(neighbor)
                         to_visit.append((neighbor, current_depth + 1))
         return nodes_within_depth
+    def dead_edges(self):
+        """Identifies edges in dying subnetworks"""
+        dead = []
+        for i in range(len(self.full_subnetwork)):
+            for j in range(len(self.full_subnetwork[i])):
+                if self.full_radii[i][j] < 1:
+                    for q in range(len(self.full_subnetwork[i][j])):
+                        dead.append(self.full_subnetwork[i][j][q])
+        return dead
