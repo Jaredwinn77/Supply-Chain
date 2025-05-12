@@ -4,7 +4,7 @@ Cascade:
     Cascades affect hanging nodes??
     Intersection/unions of subenetworks
     Sensitivity--
-    Condtion of the system:
+    Condition of the system:
         Calculate how much each perturbation changes the outcome
     Lyaponov Coefficient:
         Similar measures the dependence on initial conditions, can be used to classify the system as chaotic 
@@ -46,7 +46,7 @@ coarse grain graph (graph of subgraphs ) edges indicate subnetworks overlap
 
 
 
-**we need color dimensional matrices, then we could simpply identify mins and take column ID's 
+**we need color dimensional matrices, then we could simply identify mins and take column ID's 
 
 
 3/10/25

@@ -8,9 +8,9 @@ def count(n, e, c):
     count = 0
     for _ in range(100):
         found = False
-        G = Graphclass(n, e, c, True)
+        G = Graphclass(n, e, c, 'random', True)
         # Debugging output to check graph conditions
-        if len(G.zero_nodes) != 0 and len(G.dirty_full_predicted) == 0:
+        if len(G.zero_nodes) != 0 and len(G.full_predicted) == 0:
             found = True
         if found:
             count += 1
@@ -19,7 +19,7 @@ def count(n, e, c):
 
 
 
-nvals = np.arange(2,11,1)
+nvals = np.arange(2,8,1)
 cvals = np.arange(1,5,1)
 print('yippe')
 n_list, e_list, c_list, output_list = [], [], [], []

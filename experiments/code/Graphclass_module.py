@@ -60,9 +60,9 @@ class Graphclass:
         if method == 'goliath':
             self.G = self.Goliath()
         if method == 'ws':
-            self.G = self.Watts_Strogatz()
+            self.G = self.Watts_Strogatz() # models small-world netowrks like social networks
         if method == 'ba':
-            self.G = self.Barabasi_Albert()
+            self.G = self.Barabasi_Albert() # Models scale-free netowrks such as the web or citation networks
         if method == 'rg':
             self.G = self.random_geometric()
         # Generates random weights
@@ -172,7 +172,7 @@ class Graphclass:
                 G.add_edge(src_node, dst_node)
         for u, v in G.edges():
         # Random integer color and weight attributes for each edge
-            G[u][v]['color'] = random.randint(0,self.num_colors)
+            G[u][v]['color'] = random.randint(0, self.num_colors)
         return G
 
     def use_premade(self, G, W):
@@ -202,18 +202,18 @@ class Graphclass:
         nx.set_edge_attributes(G, edge_color_map, 'color')
         return G
     
-    def make_custom_graph(self, edges):
-        """Older version of use premade which uses inbuilt graphs and weights"""
-        #edges = [(0, 2, 1), (0, 1, 1), (1, 3, 0), (2, 0, 1), (2, 3, 0), (3, 2, 0)]
-        #edges = [(0, 2, 1),(0, 1, 0),(1, 0, 1),(1, 3, 1),(2,1,1),(3,2,0)]
-        #edges = [(0,3,1),(1,2,1),(2,1,1),(2,0,0),(3,0,1),(3,2,1)]
-        edges = [(0,1,0),(1,0,1),(1,2,0),(2,1,0)]
-        G = nx.DiGraph()
-        for u, v, color in edges:
-            G.add_edge(u, v, color=color)
-        self.G = G
-        self.weights = np.array([[0,10,0],[10,0,0.5],[0,0.5,0]])
-        self.num_nodes = len(edges)
+    # def make_custom_graph(self, edges): # Kaden here, appears to not be in use.
+    #     """Older version of use premade which uses inbuilt graphs and weights"""
+    #     #edges = [(0, 2, 1), (0, 1, 1), (1, 3, 0), (2, 0, 1), (2, 3, 0), (3, 2, 0)]
+    #     #edges = [(0, 2, 1),(0, 1, 0),(1, 0, 1),(1, 3, 1),(2,1,1),(3,2,0)]
+    #     #edges = [(0,3,1),(1,2,1),(2,1,1),(2,0,0),(3,0,1),(3,2,1)]
+    #     edges = [(0,1,0),(1,0,1),(1,2,0),(2,1,0)]
+    #     G = nx.DiGraph()
+    #     for u, v, color in edges:
+    #         G.add_edge(u, v, color=color)
+    #     self.G = G
+    #     self.weights = np.array([[0,10,0],[10,0,0.5],[0,0.5,0]])
+    #     self.num_nodes = len(edges)
     
     def create_weights(self, rho=2):
         """"Creates a random weight matrix for a given graph"""
