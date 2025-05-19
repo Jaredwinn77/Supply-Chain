@@ -91,6 +91,22 @@ class Kaden_Graphclass(Graphclass):
                 results[(subnetwork_id, node)] = G_dead
         return results
     
+    def cascading_failure_whole_graph(self): 
+        """For each node in original graph, assume it goes out of business and see how the cascade travels down the graph"""
+        results = {}
+        all_nodes = set(self.G.nodes())
+        for node in all_nodes:
+            dead_nodes = self.kill_node_X(self.G, node)
+            G_dead = nx.DiGraph()
+            for u, v, data in self.G.edges.data(): # iterate over the outedges object, first two entries in tuple are nodes edge is between and third is 
+                color = data['color']
+                if u not in dead_nodes and v not in dead_nodes:
+                    G_dead.add_edge(u, v, color=color)
+            results[node] = G_dead
+        return results
+
+
+    
     def visualize_failed_graphs_sideby_side_w_subnetworks(self, failed_graphs_dict): # plot subnetworks side by side with cascading ones.
         subnetworks = self.subnetworks
 
