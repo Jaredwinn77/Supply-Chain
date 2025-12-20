@@ -1,41 +1,99 @@
 import random
-from collections import defaultdict, deque
-from copy import deepcopy
+from collections import defaultdict
 from colorsys import hsv_to_rgb
 import networkx as nx
+import numpy as np
+from scipy.sparse.linalg import eigs
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 
+
 class SupplyChainNetwork:
     """Graph class to model supply chain networks."""
-    def __init__(self, num_nodes: int, num_edges: int, num_colors: int, method: str = "random", seed: int | None = None, rho: int = 2):
-        """
-        """
-        # Check for a positive number of nodes
+
+    _GRAPH_BUILDERS = {
+        "random": "create_random_graph",
+        "scale_free": "create_scale_free_graph",
+    }
+
+    def __init__(self):
+        self._subnetworks = None
+
+
+    @classmethod
+    def from_file(cls, filename: str):
+        obj = cls()
+        obj._build_network(filename)
+        return obj
+    
+
+    @classmethod
+    def generate(
+        cls,
+        *,
+        num_nodes: int,
+        num_edges: int,
+        num_colors: int,
+        method: str = "random",
+        seed: int | None = None,
+        rho: int = 2,
+    ):
+        obj = cls()
+        obj._initialize_parameters(num_nodes, num_edges, num_colors, method, rho)
+        obj._initialize_palette(num_colors)
+        obj._build_generated_graph(method, seed)
+        return obj
+    
+
+    def _initialize_parameters(self, num_nodes, num_edges, num_colors, method, rho):
+        self._validate_parameters(num_nodes, num_edges, num_colors, method, rho)
+        self.method = method
+        self.num_nodes = num_nodes
+        self.num_edges = num_edges
+        self.num_colors = num_colors
+        self.rho = rho
+    
+
+    def _validate_parameters(self, num_nodes, num_edges, num_colors, method, rho):
         if num_nodes < 1:
-            raise ValueError("Number of nodes must be non-negative.")
+            raise ValueError("Number of nodes must be positive.")
         
-        # Check to make sure weakly connected graph is possible given edge, node, and color counts
-        if not (num_nodes <= num_edges <= num_colors * num_nodes * (num_nodes - 1)):
-            raise ValueError("Strongly connected graph is not possible with given edge and node counts.")
+        if method == "random":
+            max_edges = num_colors * num_nodes * (num_nodes - 1)
+            if not (num_nodes <= num_edges <= max_edges):
+                raise ValueError(
+                    "Strongly connected graph is not possible with given parameters."
+                )
+            
+        if rho <= 0:
+            raise ValueError("Maximum edge weight must be positive.")
+            
+
+    def _initialize_palette(self, num_colors: int):
+        self.palette = [
+            self._color_from_index(i, num_colors)
+            for i in range(num_colors)
+        ]
+
+    
+    @staticmethod
+    def _color_from_index(i: int, n: int) -> str:
+        h = i / n 
+        r, g, b = hsv_to_rgb(h, s=0.7, v=0.9)
+        return "#{:02x}{:02x}{:02x}".format(
+            int(255 * r), int(255 * g), int(255 * b)
+        )
+    
+
+    def _build_generated_graph(self, method, seed):
+        try:
+            builder_name = self._GRAPH_BUILDERS[method]
+        except KeyError:
+            raise ValueError(f"Unknown graph generation method: {method}")
         
         rng = random.Random(seed)
-        self.num_nodes = num_nodes 
-        self.num_edges = num_edges
-        self.palette = []
-        for i in range(num_colors):
-            h = i / num_colors
-            r, g, b = hsv_to_rgb(h, s=0.7, v=0.9)
-            self.palette.append("#{:02x}{:02x}{:02x}".format(*[int(255*x) for x in (r, g, b)]))
-
-        self.num_colors = num_colors
-
-        match method:
-            case "random":
-                self.create_random_graph(rng, rho)
-
-        self._subnetworks = None
+        getattr(self, builder_name)(rng)
 
 
     @property
@@ -43,61 +101,122 @@ class SupplyChainNetwork:
         if self._subnetworks is None:
             self._subnetworks = self.calculate_subnetworks()
         return self._subnetworks
+    
+
+    def _build_network(self, network_data):
+        import csv
+        self.G = nx.MultiDiGraph()
+        colors = []
+
+        with open(network_data, 'r', newline='') as csvfile:
+            reader = csv.reader(csvfile)
+        
+            for row in reader:
+                u, v, business = row
+                start = business.find(":") + 1
+                end = business.find("}", start)
+                business_type = business[start:end].strip()
+                if business_type not in colors:
+                    colors.append(business_type)
+
+                c = colors.index(business_type)
+
+                # Due to insufficient data, set all weights for edges equal to 1
+                self.G.add_edge(u, v, key=c, color=c, weight=1)
+
+        self.num_nodes = len(self.G.nodes)
+        self.num_edges = len(self.G.edges)
+        self.num_colors = len(colors)
+        self.palette = []
+
+        for i in range(self.num_colors):
+            h = i / self.num_colors
+            r, g, b = hsv_to_rgb(h, s=0.7, v=0.9)
+            self.palette.append("#{:02x}{:02x}{:02x}".format(*[int(255*x) for x in (r, g, b)]))
+
+        self._subnetworks = None
 
 
-    def create_random_graph(self, rng: random.Random, rho: int):
+    def create_random_graph(self, rng: random.Random):
         """Build a random weakly-connected supply-chain network.
+        Each node has in-degree >= 1 (no zero columns in the adjacency matrix).
 
         * Graph type            : nx.MultiDiGraph (parallel arcs allowed)
         * Edge attributes       : color - int (category index into self.palette)
                                   weight - float (uniform[0, rho))
         * Constraints           : at most one edge of a given color between any (u, v)
         """
-        # Create random directed cycle through all nodes (guarantees weak-connectivity) 
-        order = list(range(self.num_nodes))
-        rng.shuffle(order)
+        self.G = nx.MultiDiGraph()
+        used = set()
+
+        # Ensure each node has in-degree >= 1
+        for v in range(self.num_nodes):
+            while True:
+                u = rng.randrange(self.num_nodes)
+                # Avoid self-loops
+                if u == v:
+                    continue
+
+                c = rng.randrange(self.num_colors)
+                if (u, v, c) in used:
+                    continue
+
+                w = rng.uniform(0, self.rho)
+                self.G.add_edge(u, v, key=c, color=c, weight=w)
+                used.add((u, v, c))
+                break
+
+        remaining = self.num_edges - self.num_nodes
+
+        # Add in remaining required edges at random
+        while remaining > 0:
+            u = rng.randrange(self.num_nodes)
+            v = rng.randrange(self.num_nodes)
+            if u == v:
+                continue
+
+            c = rng.randrange(self.num_colors)
+            if (u, v, c) in used:
+                continue
+
+            w = rng.uniform(0, self.rho)
+            self.G.add_edge(u, v, key=c, color=c, weight=w)
+            used.add((u, v, c))
+            remaining -= 1
+
+
+    def create_scale_free_graph(self, rng: random.Random):
+        """Build a weakly-connected, scale-free-like supply-chain network
+        with preferential attachment in both directions.
+
+        * Graph type      : nx.MultiDiGraph (parallel arcs allowed)
+        * Edge attributes : color - int (category index into self.palette)
+                            weight - float (uniform[0, rho))
+        * Generation      : Uses nx.scale_free_graph (directed, power-law in/out degrees)
+        """
+        base_G = nx.scale_free_graph(
+            self.num_nodes,
+            seed=rng.randint(0, 10**6)
+        )
 
         self.G = nx.MultiDiGraph()
 
-        for i in range(self.num_nodes):
-            u = order[i]
-            v = order[(i + 1) % self.num_nodes]
+        for u, v in base_G.edges():
             c = rng.randint(0, self.num_colors - 1)
-            w = rng.uniform(0, rho)
-
-            # Ensure duplicate colors are impossible by settting it as the key
+            w = rng.uniform(0, self.rho)
             self.G.add_edge(u, v, key=c, color=c, weight=w)
 
-        # Add in remaining directed edges at random
-        remaining = self.num_edges - self.num_nodes
-        if remaining <= 0:
-            return
-        
-        def color_exists(u: int, v: int, color: int) -> bool:
-            """Helper function to determine if colored edge exists between (u, v)"""
-            if not self.G.has_edge(u, v):
-                return False
-            for attr in self.G[u][v].values():
-                if attr.get("color") == color:
-                    return True
-            return False
-        
-        # all (u, v, color) triples that are still possible
-        possible = [
-            (u, v, c)
-            for u in self.G.nodes
-            for v in self.G.nodes
-            if u != v
-            for c in range(self.num_colors)
-            if not color_exists(u, v, c)
-        ]
+        if not nx.is_weakly_connected(self.G):
+            order = list(self.G.nodes)
+            rng.shuffle(order)
+            for i in range(len(order)):
+                u = order[i]
+                v = order[(i + 1) % len(order)]
+                c = rng.randint(0, self.num_colors - 1)
+                w = rng.uniform(0, self.rho)
+                self.G.add_edge(u, v, key=c, color=c, weight=w)
 
-        chosen = rng.sample(possible, remaining)
-
-        self.G.add_edges_from(
-            (u, v, c, {"color": c, "weight": rng.uniform(0, rho)}) 
-            for u, v, c in chosen
-        )
+        self.num_edges = self.G.number_of_edges()
 
 
     def visualize_supply_chain(self, pos=None, weight_range=(1.2, 4.0)):
@@ -162,94 +281,135 @@ class SupplyChainNetwork:
         plt.show()
 
 
+    def diversify(self, color):
+        """Diversify a given color in the network."""
+        if not (0 <= color < self.num_colors):
+            raise ValueError("Given color does not exist in network.")
+        
+        nodes_with_color = []
+        for v in self.G.nodes:
+            for _, _, data in self.G.in_edges(v, data=True):
+                if data["color"] == color:
+                    nodes_with_color.append(v)
+                    break
+
+        # Network can't diverisfy with less than two nodes
+        if len(nodes_with_color) < 2:
+            return
+        
+        color_edges = []
+        for u, v, key, data in self.G.edges(keys=True, data=True):
+            if data['color'] == color:
+                color_edges.append((u, v, key, data['weight']))
+
+        for u, v, key, w in color_edges:
+            new_weight = w / 2
+
+            self.G[u][v][key]['weight'] = new_weight
+
+            candidates = [x for x in nodes_with_color if x != v]
+            v2 = random.choice(candidates)
+
+            existing_edge_key = None
+
+            if self.G.has_edge(u, v2):
+                for k2, d2 in self.G[u][v2].items():
+                    if d2.get('color') == color:
+                        existing_edge_key = k2
+                        break
+
+            if existing_edge_key is not None:
+                self.G[u][v2][existing_edge_key]['weight'] += new_weight
+            else:
+                self.G.add_edge(u, v2, key=color, color=color, weight=new_weight)
+
+
     def _materialize_subgraph(self, stars, star_defs):
         H = nx.MultiDiGraph()
         for idx in stars:
-            s = star_defs[idx]
-            target = s["target"]
-            color = s["color"]
-            for source in s["sources"]:
+            target, color, sources = star_defs[idx]
+            for source in sources:
                 data = self.G[source][target][color]
                 H.add_edge(source, target, key=color, **data)
+                
         return H
 
 
     def calculate_subnetworks(self):
-        """DFS Algorithm for calculating ACI Subnetworks"""
-        # Preprocess data into 'star' objects, which is a node and all same-color edges incoming
+        """DFS algorithm for calculating ACI Subnetworks.
+        Returns only maximal subnetworks (no duplicates or strict subsets).
+        """
+        # --- Step 1. Build 'star' objects: (target, color, tuple(sources)) ---
         stars = []
         star_of_v = defaultdict(list)
-
         for v in self.G.nodes:
             by_color = defaultdict(list)
             for u, _, data in self.G.in_edges(v, data=True):
                 by_color[data["color"]].append(u)
             for c, sources in by_color.items():
                 idx = len(stars)
-                stars.append({"target": v,
-                              "color": c,
-                              "sources": tuple(sources)})
+                stars.append((v, c, tuple(sources)))
                 star_of_v[v].append(idx)
-        
-        def dfs(stars, star_of_v):
-            stack = deque()
-            uf0 = nx.utils.UnionFind()
-            stack.append(([], set(), set(), uf0, list(star_of_v.keys()), dict()))
 
-            while stack:
-                chosen, included, resolved, uf, frontier, chosen_colors = stack.pop()
+        has_star = {v: bool(star_of_v[v]) for v in self.G.nodes}
+        results = []
+        seen = set()  # prevent exact-duplicate closures
 
-                if not frontier:
-                    included_uf = nx.utils.UnionFind([x for x in included])
-                    for idx in chosen:
-                        s = stars[idx]
-                        nodes = set(s["sources"]) | {s["target"]}
-                        root = next(iter(nodes))
-                        for w in nodes:
-                            included_uf.union(root, w)
-                    if sum(1 for _ in included_uf.to_sets()) == 1:
-                        yield self._materialize_subgraph(chosen, stars)
+        assigned = [-1] * self.num_nodes
+
+        # --- Step 2. DFS helper function ---
+        def dfs(chosen, frontier):
+            """Recursively explore combinations of stars."""
+            # Pop already-assigned nodes from the frontier
+            while frontier and assigned[frontier[-1]] != -1:
+                frontier.pop()
+
+            # If no nodes left to expand, record closure
+            if not frontier:
+                frozen = frozenset(chosen)
+                if frozen not in seen:
+                    seen.add(frozen)
+                    results.append(self._materialize_subgraph(sorted(chosen), stars))
+                return
+
+            # Otherwise, expand next node in frontier
+            w = frontier.pop()
+            for idx in star_of_v.get(w, []):
+                v2, c2, sources2 = stars[idx]
+
+                # Skip if star depends on nodes without stars
+                if any(not has_star.get(u, False) for u in sources2):
                     continue
-                
-                v, *rest_frontier = frontier
 
-                if v not in included:
-                    stack.append((chosen, 
-                                  included, 
-                                  resolved | {v},
-                                  uf, 
-                                  rest_frontier,
-                                  chosen_colors.copy()))
+                # Skip color conflicts
+                if assigned[w] != -1 and assigned[w] != c2:
+                    continue
 
-                for idx in star_of_v[v]:
-                    s = stars[idx]
-                    color = s["color"]
+                old_color = assigned[w]
+                assigned[w] = c2
 
-                    if v in chosen_colors and chosen_colors[v] != color:
-                        continue
+                new_frontier = frontier + [u for u in sources2 if assigned[u] == -1]
+                dfs(chosen | {idx}, new_frontier)
 
-                    new_nodes = set(s["sources"]) | {s["target"]}
-                    new_included = included | new_nodes
-                    new_resolved = resolved | {v}
+                assigned[w] = old_color  # rollback
 
-                    new_uf = deepcopy(uf)
-                    root = next(iter(new_nodes))
-                    for w in new_nodes:
-                        new_uf.union(root, w)
+        # --- Step 3. Launch DFS from valid seeds ---
+        for seed_idx, (v, c, sources) in enumerate(stars):
+            if any(not has_star.get(w, False) for w in sources):
+                continue
+            assigned[v] = c
+            frontier = [u for u in sources if assigned[u] == -1]
+            dfs({seed_idx}, frontier)
+            assigned[v] = -1
 
-                    new_frontier = rest_frontier + [w for w in new_nodes if w not in included and w not in new_resolved]
+        # --- Step 4. Remove non-maximal subnetworks ---
+        maximal_results = []
+        node_sets = [set(H.nodes) for H in results]
+        for i, s1 in enumerate(node_sets):
+            if not any(s1 < s2 for j, s2 in enumerate(node_sets) if i != j):
+                maximal_results.append(results[i])
 
-                    new_chosen_colors = chosen_colors.copy()
-                    new_chosen_colors[v] = color
-
-                    stack.append((chosen + [idx],
-                                  new_included,
-                                  new_resolved,
-                                  new_uf,
-                                  new_frontier,
-                                  new_chosen_colors))
-
-        return list(dfs(stars, star_of_v))
+        return maximal_results
     
 
     def visualize_network(self, G: nx.MultiDiGraph, title=None, pos=None, weight_range=(1.2, 4.0)):
@@ -314,7 +474,11 @@ class SupplyChainNetwork:
             plt.title(title)
         fig.tight_layout()
 
+        radius = eigs(nx.adjacency_matrix(G), k=1, which="LM")
+        plt.title(f"{np.abs(radius[0][0])}")
+
         plt.show()
 
     def visualize_subnetworks(self):
-        pass
+        for subnetwork in self.subnetworks:
+            self.visualize_network(subnetwork)
