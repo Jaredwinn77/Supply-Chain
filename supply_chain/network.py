@@ -22,9 +22,20 @@ class SupplyChainNetwork:
 
 
     @classmethod
-    def from_file(cls, filename: str):
+    def from_file(
+        cls, 
+        filename: str,
+        seed: int | None = None,
+    ):
         obj = cls()
-        obj._build_network(filename)
+        num_colors = obj._build_network(filename)
+        num_nodes = obj.G.number_of_nodes()
+        num_edges = obj.G.number_of_edges()
+        method = "file"
+        rho = 1  # Max edge weight is 1 from file
+        obj._initialize_parameters(num_nodes, num_edges, num_colors, method, rho, seed)
+        obj._initialize_palette(num_colors)
+
         return obj
     
 
@@ -40,20 +51,21 @@ class SupplyChainNetwork:
         rho: int = 2,
     ):
         obj = cls()
-        obj._initialize_parameters(num_nodes, num_edges, num_colors, method, rho)
+        obj._initialize_parameters(num_nodes, num_edges, num_colors, method, rho, seed)
         obj._initialize_palette(num_colors)
-        obj._build_generated_graph(method, seed)
+        obj._build_generated_graph(method)
         return obj
     
 
-    def _initialize_parameters(self, num_nodes, num_edges, num_colors, method, rho):
+    def _initialize_parameters(self, num_nodes, num_edges, num_colors, method, rho, seed):
         self._validate_parameters(num_nodes, num_edges, num_colors, method, rho)
         self.method = method
         self.num_nodes = num_nodes
         self.num_edges = num_edges
         self.num_colors = num_colors
         self.rho = rho
-    
+        self.rng = random.Random(seed)
+
 
     def _validate_parameters(self, num_nodes, num_edges, num_colors, method, rho):
         if num_nodes < 1:
@@ -86,14 +98,13 @@ class SupplyChainNetwork:
         )
     
 
-    def _build_generated_graph(self, method, seed):
+    def _build_generated_graph(self, method):
         try:
             builder_name = self._GRAPH_BUILDERS[method]
         except KeyError:
             raise ValueError(f"Unknown graph generation method: {method}")
         
-        rng = random.Random(seed)
-        getattr(self, builder_name)(rng)
+        getattr(self, builder_name)()
 
 
     @property
@@ -103,12 +114,12 @@ class SupplyChainNetwork:
         return self._subnetworks
     
 
-    def _build_network(self, network_data):
+    def _build_network(self, filename: str) -> int:
         import csv
         self.G = nx.MultiDiGraph()
         colors = []
 
-        with open(network_data, 'r', newline='') as csvfile:
+        with open(filename, 'r', newline='') as csvfile:
             reader = csv.reader(csvfile)
         
             for row in reader:
@@ -124,20 +135,10 @@ class SupplyChainNetwork:
                 # Due to insufficient data, set all weights for edges equal to 1
                 self.G.add_edge(u, v, key=c, color=c, weight=1)
 
-        self.num_nodes = len(self.G.nodes)
-        self.num_edges = len(self.G.edges)
-        self.num_colors = len(colors)
-        self.palette = []
-
-        for i in range(self.num_colors):
-            h = i / self.num_colors
-            r, g, b = hsv_to_rgb(h, s=0.7, v=0.9)
-            self.palette.append("#{:02x}{:02x}{:02x}".format(*[int(255*x) for x in (r, g, b)]))
-
-        self._subnetworks = None
+        return len(colors)
 
 
-    def create_random_graph(self, rng: random.Random):
+    def create_random_graph(self):
         """Build a random weakly-connected supply-chain network.
         Each node has in-degree >= 1 (no zero columns in the adjacency matrix).
 
@@ -152,16 +153,16 @@ class SupplyChainNetwork:
         # Ensure each node has in-degree >= 1
         for v in range(self.num_nodes):
             while True:
-                u = rng.randrange(self.num_nodes)
+                u = self.rng.randrange(self.num_nodes)
                 # Avoid self-loops
                 if u == v:
                     continue
 
-                c = rng.randrange(self.num_colors)
+                c = self.rng.randrange(self.num_colors)
                 if (u, v, c) in used:
                     continue
 
-                w = rng.uniform(0, self.rho)
+                w = self.rng.uniform(0, self.rho)
                 self.G.add_edge(u, v, key=c, color=c, weight=w)
                 used.add((u, v, c))
                 break
@@ -170,16 +171,16 @@ class SupplyChainNetwork:
 
         # Add in remaining required edges at random
         while remaining > 0:
-            u = rng.randrange(self.num_nodes)
-            v = rng.randrange(self.num_nodes)
+            u = self.rng.randrange(self.num_nodes)
+            v = self.rng.randrange(self.num_nodes)
             if u == v:
                 continue
 
-            c = rng.randrange(self.num_colors)
+            c = self.rng.randrange(self.num_colors)
             if (u, v, c) in used:
                 continue
 
-            w = rng.uniform(0, self.rho)
+            w = self.rng.uniform(0, self.rho)
             self.G.add_edge(u, v, key=c, color=c, weight=w)
             used.add((u, v, c))
             remaining -= 1
@@ -196,7 +197,7 @@ class SupplyChainNetwork:
         """
         base_G = nx.scale_free_graph(
             self.num_nodes,
-            seed=rng.randint(0, 10**6)
+            seed=self.rng.randint(0, 10**6)
         )
 
         self.G = nx.MultiDiGraph()
@@ -281,47 +282,65 @@ class SupplyChainNetwork:
         plt.show()
 
 
-    def diversify(self, color):
-        """Diversify a given color in the network."""
-        if not (0 <= color < self.num_colors):
-            raise ValueError("Given color does not exist in network.")
+    def diversify(self, p: float | int, lam: float = 0.5):
+        """Diversify a percentage of edges in the network by factor lambda.
         
-        nodes_with_color = []
-        for v in self.G.nodes:
-            for _, _, data in self.G.in_edges(v, data=True):
-                if data["color"] == color:
-                    nodes_with_color.append(v)
+        :param p: Percentage of edges to diversify 
+        :type p: float | int
+        :param lam: Diversification factor 
+        If original edge has weight a, the original edge has weight lam*a, new edge has weight (1-lam)*a.
+        :type lam: float
+        """
+        # Validate parameters
+        if not (0 < p <= 1):
+            raise ValueError("Percentage of nodes must be 0 < p <= 1")
+        
+        if not (0 < lam < 1):
+            raise ValueError("Diversification factor must be 0 < lam < 1")
+        
+        nodes_with_color = defaultdict(set)
+        edges = list(self.G.edges(keys=True, data=True))
+
+        for _, v, _, data in edges:
+            color = data["color"]
+            nodes_with_color[color].add(v)
+        
+        num_edges = round(p * self.G.number_of_edges())
+        edges_to_diversify = self.rng.sample(edges, num_edges)
+
+        diversified = set()
+
+        for u, v, key, data in edges_to_diversify:
+            if (u, v, key) in diversified:
+                continue
+            diversified.add((u, v, key))
+
+            color = data["color"]
+            weight = data["weight"]
+            destinations = nodes_with_color[color]
+
+            # Sample new destination that's different than current one
+            candidates = destinations - {v}
+            if not candidates:
+                continue
+
+            v2 = self.rng.choice(tuple(candidates))
+            new_weight = (1 - lam) * weight
+
+            for _, d2 in self.G[u][v2].items() if self.G.has_edge(u, v2) else []:
+                # Merge weight if edge already exists
+                if d2["color"] == color:
+                    d2["weight"] += new_weight
                     break
 
-        # Network can't diverisfy with less than two nodes
-        if len(nodes_with_color) < 2:
-            return
-        
-        color_edges = []
-        for u, v, key, data in self.G.edges(keys=True, data=True):
-            if data['color'] == color:
-                color_edges.append((u, v, key, data['weight']))
-
-        for u, v, key, w in color_edges:
-            new_weight = w / 2
-
-            self.G[u][v][key]['weight'] = new_weight
-
-            candidates = [x for x in nodes_with_color if x != v]
-            v2 = random.choice(candidates)
-
-            existing_edge_key = None
-
-            if self.G.has_edge(u, v2):
-                for k2, d2 in self.G[u][v2].items():
-                    if d2.get('color') == color:
-                        existing_edge_key = k2
-                        break
-
-            if existing_edge_key is not None:
-                self.G[u][v2][existing_edge_key]['weight'] += new_weight
             else:
                 self.G.add_edge(u, v2, key=color, color=color, weight=new_weight)
+
+            self.G[u][v][key]['weight'] = lam * weight
+
+        self.num_edges = self.G.number_of_edges()
+        if self._subnetworks is not None:
+            self._subnetworks = self.calculate_subnetworks()
 
 
     def _materialize_subgraph(self, stars, star_defs):
