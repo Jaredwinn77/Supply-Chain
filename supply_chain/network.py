@@ -339,8 +339,7 @@ class SupplyChainNetwork:
             self.G[u][v][key]['weight'] = lam * weight
 
         self.num_edges = self.G.number_of_edges()
-        if self._subnetworks is not None:
-            self._subnetworks = self.calculate_subnetworks()
+        self._subnetworks = None
 
 
     def _materialize_subgraph(self, stars, star_defs):
