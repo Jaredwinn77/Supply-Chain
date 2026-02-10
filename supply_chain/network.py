@@ -321,6 +321,10 @@ class SupplyChainNetwork:
 
             # Sample new destination that's different than current one
             candidates = destinations - {v}
+            
+            if u in destinations:
+                candidates = candidates | {u}
+                
             if not candidates:
                 continue
 
@@ -357,7 +361,6 @@ class SupplyChainNetwork:
         """DFS algorithm for calculating ACI Subnetworks.
         Returns only maximal subnetworks (no duplicates or strict subsets).
         """
-        # --- Step 1. Build 'star' objects: (target, color, tuple(sources)) ---
         stars = []
         star_of_v = defaultdict(list)
         for v in self.G.nodes:
@@ -375,7 +378,6 @@ class SupplyChainNetwork:
 
         assigned = [-1] * self.num_nodes
 
-        # --- Step 2. DFS helper function ---
         def dfs(chosen, frontier):
             """Recursively explore combinations of stars."""
             # Pop already-assigned nodes from the frontier
@@ -411,7 +413,6 @@ class SupplyChainNetwork:
 
                 assigned[w] = old_color  # rollback
 
-        # --- Step 3. Launch DFS from valid seeds ---
         for seed_idx, (v, c, sources) in enumerate(stars):
             if any(not has_star.get(w, False) for w in sources):
                 continue
@@ -420,7 +421,6 @@ class SupplyChainNetwork:
             dfs({seed_idx}, frontier)
             assigned[v] = -1
 
-        # --- Step 4. Remove non-maximal subnetworks ---
         maximal_results = []
         node_sets = [set(H.nodes) for H in results]
         for i, s1 in enumerate(node_sets):
