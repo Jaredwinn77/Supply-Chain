@@ -346,88 +346,88 @@ class SupplyChainNetwork:
         self._subnetworks = None
 
 
-    def _materialize_subgraph(self, stars, star_defs):
+    def _materialize_subgraph(
+        self, 
+        star_defs: list,
+        chosen_star_indices: set
+    ) -> nx.MultiDiGraph:
+        """Build the subgraph for the given set of star indices."""
         H = nx.MultiDiGraph()
-        for idx in stars:
+        for idx in chosen_star_indices:
             target, color, sources = star_defs[idx]
             for source in sources:
-                data = self.G[source][target][color]
-                H.add_edge(source, target, key=color, **data)
+                for key, data in self.G[source][target].items():
+                    if data["color"] == color:
+                        H.add_edge(source, target, key=key, **data)
+                        break
                 
         return H
 
 
     def calculate_subnetworks(self):
-        """DFS algorithm for calculating ACI Subnetworks.
-        Returns only maximal subnetworks (no duplicates or strict subsets).
-        """
-        stars = []
-        star_of_v = defaultdict(list)
-        for v in self.G.nodes:
+        """Return all minimal ACI subnetworks of a supply-chain graph."""
+        G = self.G
+
+        star_defs = []
+        star_of = defaultdict(list)
+
+        # Build star objects in the graph 
+        for v in G.nodes:
             by_color = defaultdict(list)
-            for u, _, data in self.G.in_edges(v, data=True):
+            for u, _, data in G.in_edges(v, data=True):
                 by_color[data["color"]].append(u)
             for c, sources in by_color.items():
-                idx = len(stars)
-                stars.append((v, c, tuple(sources)))
-                star_of_v[v].append(idx)
+                idx = len(star_defs)
+                star_defs.append((v, c, tuple(sources)))
+                star_of[v].append(idx)
 
-        has_star = {v: bool(star_of_v[v]) for v in self.G.nodes}
         results = []
-        seen = set()  # prevent exact-duplicate closures
+        seen_edge_sets = set()
 
-        assigned = [-1] * self.num_nodes
-
-        def dfs(chosen, frontier):
-            """Recursively explore combinations of stars."""
-            # Pop already-assigned nodes from the frontier
-            while frontier and assigned[frontier[-1]] != -1:
+        def dfs(
+            chosen: set,
+            color_of: dict,
+            frontier: list
+        ) -> None:
+            while frontier and frontier[-1] in color_of:
                 frontier.pop()
 
-            # If no nodes left to expand, record closure
             if not frontier:
-                frozen = frozenset(chosen)
-                if frozen not in seen:
-                    seen.add(frozen)
-                    results.append(self._materialize_subgraph(sorted(chosen), stars))
+                H = self._materialize_subgraph(star_defs, chosen)
+                key = frozenset(H.edges(keys=True))
+                if key not in seen_edge_sets:
+                    seen_edge_sets.add(key)
+                    results.append(H)
                 return
-
-            # Otherwise, expand next node in frontier
+            
             w = frontier.pop()
-            for idx in star_of_v.get(w, []):
-                v2, c2, sources2 = stars[idx]
 
-                # Skip if star depends on nodes without stars
-                if any(not has_star.get(u, False) for u in sources2):
-                    continue
+            for idx in star_of.get(w, []):
+                _, c, sources = star_defs[idx]
+                chosen.add(idx)
+                color_of[w] = c
+                new_nodes = [u for u in sources if u not in color_of]
+                dfs(chosen, color_of, frontier + new_nodes)
+                chosen.discard(idx)
+                del color_of[w]
 
-                # Skip color conflicts
-                if assigned[w] != -1 and assigned[w] != c2:
-                    continue
+        for seed_idx, (v, c, sources) in enumerate(star_defs):
+            chosen = {seed_idx}
+            color_of = {v: c}
+            frontier = list(sources)
+            dfs(chosen, color_of, frontier)
 
-                old_color = assigned[w]
-                assigned[w] = c2
+        # Return only minimal subnetworks
+        if not results:
+            return results
+        
+        edge_sets = [frozenset(H.edges(keys=True)) for H in results]
 
-                new_frontier = frontier + [u for u in sources2 if assigned[u] == -1]
-                dfs(chosen | {idx}, new_frontier)
-
-                assigned[w] = old_color  # rollback
-
-        for seed_idx, (v, c, sources) in enumerate(stars):
-            if any(not has_star.get(w, False) for w in sources):
-                continue
-            assigned[v] = c
-            frontier = [u for u in sources if assigned[u] == -1]
-            dfs({seed_idx}, frontier)
-            assigned[v] = -1
-
-        maximal_results = []
-        node_sets = [set(H.nodes) for H in results]
-        for i, s1 in enumerate(node_sets):
-            if not any(s1 < s2 for j, s2 in enumerate(node_sets) if i != j):
-                maximal_results.append(results[i])
-
-        return maximal_results
+        return [
+            results[i]
+            for i, es_i in enumerate(edge_sets)
+            if not any(es_j < es_i for j, es_j in enumerate(edge_sets) if i != j)
+        ]
     
 
     def visualize_network(self, G: nx.MultiDiGraph, title=None, pos=None, weight_range=(1.2, 4.0)):
@@ -492,7 +492,7 @@ class SupplyChainNetwork:
             plt.title(title)
         fig.tight_layout()
 
-        radius = eigs(nx.adjacency_matrix(G), k=1, which="LM")
+        radius = eigs(nx.adjacency_matrix(G).toarray(), k=1, which="LM")
         plt.title(f"{np.abs(radius[0][0])}")
 
         plt.show()
